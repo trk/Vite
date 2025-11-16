@@ -36,6 +36,9 @@ class Vite extends WireData implements Module
         ];
     }
 
+    /**
+     * @inheritDoc
+     */
     public function __construct()
     {
         $this->wire('classLoader')->addNamespace('Totoglu\Vite', __DIR__ . '/src');
