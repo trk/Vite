@@ -1,0 +1,58 @@
+# Workflow name
+name: Create Tag and Release from PHP Version
+
+# Controls when the workflow will run
+on:
+  push:
+    branches:
+      # Runs only on pushes to the main branch
+      - main
+    paths:
+      # Triggers the workflow only if Vite.php is modified
+      - "Vite.php"
+
+# Defines the jobs to run
+jobs:
+  tag_and_release:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Permissions required for the job
+    permissions:
+      # Required to push tags and create a GitHub Release
+      contents: write
+
+    # A sequence of tasks that will be executed
+    steps:
+      # 1. Checks out your repository's code
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # 2. Extracts the semantic version number from the VERSION constant
+      - name: Extract module version
+        id: get_version
+        run: |
+          # Uses grep with a Perl-compatible regex to find the version string
+          # inside the 'const VERSION' line and sets it as an output variable.
+          VERSION=$(grep -oP "const VERSION = '\K[^']+" Vite.php)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      # 3. Creates a Git Tag and a GitHub Release using the extracted version
+      - name: Create Git Tag and GitHub Release
+        env:
+          # Token for authenticating with the GitHub API
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Creates the tag name with a "v" prefix (e.g., v0.0.1)
+          TAG="v${{ steps.get_version.outputs.version }}"
+          echo "Generated Tag: $TAG"
+
+          # Creates the Git tag
+          git tag $TAG
+          # Pushes the new tag to the origin repository
+          git push origin $TAG
+
+          # Creates a new GitHub Release using the GitHub CLI
+          # The --generate-notes flag automatically creates release notes
+          # from commits since the last tag.
+          gh release create $TAG --generate-notes```

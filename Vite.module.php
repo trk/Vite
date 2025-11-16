@@ -19,12 +19,14 @@ namespace ProcessWire;
  */
 class Vite extends WireData implements Module
 {
+    const VERSION = '0.0.2';
+
     public static function getModuleInfo()
     {
         return [
             'title' => 'Vite',
             "summary" => __('Vite adapter for ProcessWire', __FILE__),
-            "version" => 1,
+            'version' => self::VERSION,
             'icon' => 'code',
             'singular' => true,
             'autoload' => true,
