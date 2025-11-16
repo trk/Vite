@@ -8,8 +8,8 @@ on:
       # Runs only on pushes to the main branch
       - main
     paths:
-      # Triggers the workflow only if Vite.php is modified
-      - "Vite.php"
+      # Triggers the workflow only if src/Vite.php is modified
+      - "Vite.module.php"
 
 # Defines the jobs to run
 jobs:
@@ -24,20 +24,29 @@ jobs:
 
     # A sequence of tasks that will be executed
     steps:
-      # 1. Checks out your repository's code
+      # 1. Checks out your repository's code with full history
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+        with:
+          # Fetches all history for all branches and tags, required for note generation
+          fetch-depth: 0
 
-      # 2. Extracts the semantic version number from the VERSION constant
+      # 2. Set up Git user
+      - name: Configure Git User
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@github.com"
+
+      # 3. Extracts the semantic version number from the VERSION constant
       - name: Extract module version
         id: get_version
         run: |
           # Uses grep with a Perl-compatible regex to find the version string
-          # inside the 'const VERSION' line and sets it as an output variable.
-          VERSION=$(grep -oP "const VERSION = '\K[^']+" Vite.php)
+          # inside the 'const VERSION' line in src/Vite.php and sets it as an output variable.
+          VERSION=$(grep -oP "const VERSION = '\K[^']+" src/Vite.php)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      # 3. Creates a Git Tag and a GitHub Release using the extracted version
+      # 4. Creates a Git Tag and a GitHub Release using the extracted version
       - name: Create Git Tag and GitHub Release
         env:
           # Token for authenticating with the GitHub API
