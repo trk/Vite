@@ -1,71 +1,44 @@
-# Workflow name
-name: Create Tag and Release from PHP Version
-
-# Controls when the workflow will run
+name: "Tag, Release, Packagist"
 on:
   push:
     branches:
-      # Runs only on pushes to the main branch
-      - main
+      - master
     paths:
-      # Triggers the workflow only if main module file is modified
       - "Vite.module.php"
-
-# Defines the jobs to run
 jobs:
   tag_and_release:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
-
-    # Environment variables available to all steps in this job
     env:
       VERSION_FILE: "Vite.module.php"
-
-    # Permissions required for the job
     permissions:
-      # Required to push tags and create a GitHub Release
       contents: write
-
-    # A sequence of tasks that will be executed
     steps:
-      # 1. Checks out your repository's code with full history
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          # Fetches all history for all branches and tags, required for note generation
           fetch-depth: 0
-
-      # 2. Set up Git user
       - name: Configure Git User
         run: |
           git config user.name "GitHub Actions"
           git config user.email "github-actions@github.com"
-
-      # 3. Extracts the semantic version number from the VERSION constant
       - name: Extract module version
         id: get_version
         run: |
-          # Uses grep with a Perl-compatible regex to find the version string
-          # inside the 'const VERSION' line in the specified file and sets it as an output variable.
-          VERSION=$(grep -oP "const VERSION = '\K[^']+" ${{ env.VERSION_FILE }})
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          VERSION=$(grep -oP "const\s+VERSION\s*=\s*['\"]\K[^'\"]+" ${{ env.VERSION_FILE }})
 
-      # 4. Creates a Git Tag and a GitHub Release using the extracted version
+
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not find the version number in ${{ env.VERSION_FILE }}"
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
       - name: Create Git Tag and GitHub Release
         env:
-          # Token for authenticating with the GitHub API
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Creates the tag name with a "v" prefix (e.g., v0.0.1)
           TAG="v${{ steps.get_version.outputs.version }}"
           echo "Generated Tag: $TAG"
-
-          # Creates the Git tag
           git tag $TAG
-          # Pushes the new tag to the origin repository
           git push origin $TAG
-
-          # Creates a new GitHub Release using the GitHub CLI
-          # The --generate-notes flag automatically creates release notes
-          # from commits since the last tag.
           gh release create $TAG --generate-notes
