@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace ProcessWire;
 
 /**
@@ -19,14 +21,12 @@ namespace ProcessWire;
  */
 class Vite extends WireData implements Module
 {
-    const VERSION = '0.0.2';
-
     public static function getModuleInfo()
     {
         return [
             'title' => 'Vite',
             'summary' => __("Integrates Vite.js with ProcessWire for a modern frontend development workflow. This module simplifies asset bundling by automatically generating the correct script and style tags for your Vite-powered assets. It supports Hot Module Replacement (HMR) for instant feedback during development and reads Vite's manifest file in production for versioned/hashed assets, enabling efficient cache-busting.", __FILE__),
-            'version' => self::VERSION,
+            'version' => 2,
             'icon' => 'code',
             'singular' => true,
             'autoload' => true,
@@ -69,7 +69,7 @@ class Vite extends WireData implements Module
     /**
      * Recursively copy stub files to destination
      */
-    protected function copyStubFilesRecursive($sourceDir, $destDir, $relativePath = '')
+    protected function copyStubFilesRecursive(string $sourceDir, string $destDir, string $relativePath = ''): void
     {
         $dir = new \DirectoryIterator($sourceDir . $relativePath);
 
@@ -106,7 +106,7 @@ class Vite extends WireData implements Module
     /**
      * Copy stub files to site directory
      */
-    protected function copyStubFiles()
+    protected function copyStubFiles(): void
     {
         $stubsDir = __DIR__ . '/stubs';
         $siteDir = $this->wire('config')->paths->site;

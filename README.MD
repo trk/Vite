@@ -21,9 +21,7 @@ You can examine these configuration files in the [stubs directory on GitHub](htt
 
 As with most ProcessWire modules, you can use one of three different methods of installation:
 
-## Installation
 
-As with most ProcessWire modules, you can use one of three different methods of installation:
 
 >Install the module from the [modules directory](https://modules.processwire.com/modules/vite/):
 
@@ -170,7 +168,7 @@ If you need to include additional attributes on your script and style tags, such
 ```php
 setting('vite.scriptTagAttributes', [
     'data-turbo-track' => 'reload', // Specify a value for the attribute...
-    'async'            => true,     // Specify an attribute without a value...
+    'async'            => true,     // Specify a boolean attribute (renders as `async`)...
     'integrity'        => false,    // Exclude an attribute that would otherwise be included...
 ]);
 

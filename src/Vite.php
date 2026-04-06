@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Totoglu\Vite;
 
 use Stringable;
@@ -73,6 +75,10 @@ class Vite implements Stringable
      */
     protected static array $manifests = [];
 
+    protected array $scriptTagAttributesResolvers = [];
+    protected array $styleTagAttributesResolvers = [];
+    protected array $preloadTagAttributesResolvers = [];
+
     /**
      * Create a new Vite instance.
      */
@@ -87,6 +93,40 @@ class Vite implements Stringable
         $this->integrity = $this->module->integrity;
         $this->manifest = $this->module->manifest;
         $this->nonce = $this->module->nonce;
+
+        $this->scriptTagAttributesResolvers = $this->resolveUserSettings('vite.scriptTagAttributes');
+        $this->styleTagAttributesResolvers = $this->resolveUserSettings('vite.styleTagAttributes');
+        $this->preloadTagAttributesResolvers = $this->resolveUserSettings('vite.preloadTagAttributes');
+    }
+
+    /**
+     * Resolve the global setting into a list of executable closures.
+     */
+    protected function resolveUserSettings(string $name): array
+    {
+        $resolvers = [];
+        $globalSetting = setting($name);
+
+        if ($globalSetting) {
+            if (is_callable($globalSetting)) {
+                $resolvers[] = $globalSetting;
+            } elseif (is_array($globalSetting)) {
+                $staticAttributes = [];
+                foreach ($globalSetting as $key => $value) {
+                    if (is_int($key) && is_callable($value)) {
+                        $resolvers[] = $value;
+                    } elseif (is_string($key)) {
+                        $staticAttributes[$key] = $value;
+                    }
+                }
+
+                if (!empty($staticAttributes)) {
+                    $resolvers[] = fn() => $staticAttributes;
+                }
+            }
+        }
+
+        return $resolvers;
     }
 
     /**
@@ -96,18 +136,16 @@ class Vite implements Stringable
      *
      * @throws \Exception
      */
-    public function __invoke(array|string $entries, ?string $buildDirectory = null): ?string
+    public function __invoke(array|string $entries, ?string $buildDirectory = null): string
     {
         $entries = (array) $entries;
         $exists  = [];
 
         foreach ($entries as $key => $value) {
-
-            if ($optional = str_starts_with($value, '@')) {
-                $value = substr($value, 1);
-            }
+            $optional = str_starts_with($value, '@');
 
             if ($optional) {
+                $value = substr($value, 1);
                 if ($this->exists($value)) {
                     $entries[$key] = $value;
                     $exists[]      = $value;
@@ -120,7 +158,7 @@ class Vite implements Stringable
         if ($this->isRunningHot()) {
             array_unshift($entries, '@vite/client');
 
-            return join('', array_map(
+            return implode('', array_map(
                 fn(string $value) =>
                 $this->makeTag($value, $this->hotAsset($value)),
                 $entries
@@ -166,16 +204,16 @@ class Vite implements Stringable
         uksort(
             $preloads,
             fn($a, $b) =>
-            $this->isStylePath($a) === $this->isStylePath($b) ? 0 : 1
+            $this->isStylePath($b) <=> $this->isStylePath($a)
         );
 
         uksort(
             $assets,
             fn($a, $b) =>
-            $this->isStylePath($a) === $this->isStylePath($b) ? 0 : 1
+            $this->isStylePath($b) <=> $this->isStylePath($a)
         );
 
-        return join('', $preloads) . join('', $assets);
+        return implode('', $preloads) . implode('', $assets);
     }
 
     /**
@@ -232,7 +270,7 @@ class Vite implements Stringable
     /**
      * Get the the manifest file for the given build directory.
      *
-     * @throws \WireException
+     * @throws WireException
      */
     protected function manifest(string $buildDirectory): array
     {
@@ -254,7 +292,16 @@ class Vite implements Stringable
      */
     protected function manifestPath(string $buildDirectory): string
     {
-        return $this->path($buildDirectory . '/' . $this->manifest);
+        $path = $this->path($buildDirectory . '/' . $this->manifest);
+
+        if (! is_file($path)) {
+            $fallbackPath = $this->path($buildDirectory . '/.vite/' . $this->manifest);
+            if (is_file($fallbackPath)) {
+                return $fallbackPath;
+            }
+        }
+
+        return $path;
     }
 
     /**
@@ -365,15 +412,21 @@ class Vite implements Stringable
         return $attributes;
     }
 
-    protected function attributesResolver(string $name, string $src, string $url, array $chunk = [], array $manifest = [])
+    protected function attributesResolver(string $name, string $src, string $url, array $chunk = [], array $manifest = []): array
     {
         $attributes = [];
-        foreach (setting("vite.{$name}") ?: [] as $resolver) {
-            if (!$resolver instanceof \Closure) {
-                continue;
-            }
+
+        $resolvers = match ($name) {
+            'scriptTagAttributes' => $this->scriptTagAttributesResolvers,
+            'styleTagAttributes' => $this->styleTagAttributesResolvers,
+            'preloadTagAttributes' => $this->preloadTagAttributesResolvers,
+            default => []
+        };
+
+        foreach ($resolvers as $resolver) {
             $attributes = array_merge($attributes, $resolver($src, $url, $chunk, $manifest));
         }
+
         return $attributes;
     }
 
@@ -582,7 +635,7 @@ class Vite implements Stringable
             $attributes = fn() => $attributes;
         }
 
-        setting('vite.scriptTagAttributes', array_merge(setting('vite.scriptTagAttributes') ?: [], $attributes));
+        $this->scriptTagAttributesResolvers[] = $attributes;
 
         return $this;
     }
@@ -596,7 +649,8 @@ class Vite implements Stringable
             $attributes = fn() => $attributes;
         }
 
-        setting('vite.styleTagAttributes', array_merge(setting('vite.styleTagAttributes') ?: [], $attributes));
+        $this->styleTagAttributesResolvers[] = $attributes;
+
         return $this;
     }
 
@@ -609,7 +663,7 @@ class Vite implements Stringable
             $attributes = fn() => $attributes;
         }
 
-        setting('vite.preloadTagAttributes', array_merge(setting('vite.preloadTagAttributes') ?: [], $attributes));
+        $this->preloadTagAttributesResolvers[] = $attributes;
 
         return $this;
     }
@@ -625,18 +679,24 @@ class Vite implements Stringable
     }
 
     /**
-     * Gets the image attributes.
+     * Gets the HTML attributes.
      *
      * @param array $attributes
      *
      * @return string
      */
-    public function getAttributes(array $attributes)
+    public function getAttributes(array $attributes): string
     {
         $attrs = [];
         foreach ($attributes as $key => $value) {
-            // Skip attributes with null values
-            if ($value === null) {
+            // Skip attributes with null or false values
+            if ($value === null || $value === false) {
+                continue;
+            }
+
+            // Handle boolean true attributes (e.g., async, defer)
+            if ($value === true) {
+                $attrs[] = htmlspecialchars((string) $key);
                 continue;
             }
 
@@ -648,7 +708,7 @@ class Vite implements Stringable
             $attrs[] = sprintf('%1$s="%2$s"', $key, htmlspecialchars($value));
         }
 
-        return join(' ', $attrs);
+        return implode(' ', $attrs);
     }
 
     public function url(?string $path = null): string
@@ -703,6 +763,10 @@ class Vite implements Stringable
         // catch invalid pools
         if (!$pool) {
             return false;
+        }
+
+        if (class_exists(\Random\Randomizer::class)) {
+            return (new \Random\Randomizer())->getBytesFromString((string) $pool, $length);
         }
 
         // regex that matches all characters

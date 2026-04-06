@@ -1,10 +1,11 @@
-name: "Tag, Release, Packagist"
+name: "Tag, Release"
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - "Vite.module.php"
+  workflow_dispatch:
 jobs:
   tag_and_release:
     runs-on: ubuntu-latest
@@ -14,7 +15,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Configure Git User
@@ -24,8 +25,7 @@ jobs:
       - name: Extract module version
         id: get_version
         run: |
-          VERSION=$(grep -oP "const\s+VERSION\s*=\s*['\"]\K[^'\"]+" ${{ env.VERSION_FILE }})
-
+          VERSION=$(php -r "\$c = file_get_contents('${{ env.VERSION_FILE }}'); preg_match('/[\'\"].*?version.*?[\'\"]\s*=>\s*[\'\"]?([0-9\.]+)[\'\"]?/', \$c, \$m); \$v = \$m[1] ?? ''; if(is_numeric(\$v) && strpos((string)\$v, '.') === false) { \$v = (int)\$v; \$major = intval(\$v / 100); \$minor = intval(\$v / 10) % 10; \$micro = \$v % 10; \$v = \"\$major.\$minor.\$micro\"; } echo \$v;")
 
           if [ -z "$VERSION" ]; then
             echo "::error::Could not find the version number in ${{ env.VERSION_FILE }}"
