@@ -6,6 +6,7 @@ on:
     paths:
       - "Vite.module.php"
   workflow_dispatch:
+
 jobs:
   tag_and_release:
     runs-on: ubuntu-latest
@@ -13,15 +14,18 @@ jobs:
       VERSION_FILE: "Vite.module.php"
     permissions:
       contents: write
+      packages: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
       - name: Configure Git User
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "github-actions@github.com"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
       - name: Extract module version
         id: get_version
         run: |
@@ -33,12 +37,88 @@ jobs:
           fi
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG="v${{ steps.get_version.outputs.version }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG already exists on remote. Skipping release."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Git Tag and GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ steps.get_version.outputs.version }}"
+          REPO=${{ github.repository }}
           echo "Generated Tag: $TAG"
           git tag $TAG
           git push origin $TAG
-          gh release create $TAG --generate-notes
+
+          # Custom Release Notes Generator
+          echo "## What's Changed" > release_notes.md
+          echo "" >> release_notes.md
+
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log --format="%H" $PREV_TAG..HEAD)
+            COMPARE_URL="https://github.com/$REPO/compare/$PREV_TAG...$TAG"
+          else
+            COMMITS=$(git log --format="%H" HEAD)
+            COMPARE_URL="https://github.com/$REPO/commits/$TAG"
+          fi
+
+          SEEN_AUTHORS=()
+          CONTRIBUTORS_HTML=""
+
+          for SHA in $COMMITS; do
+             TITLE=$(git log --format="%s" -n 1 $SHA)
+             SHORT_SHA=$(git rev-parse --short $SHA)
+             
+             LOGIN=$(gh api repos/$REPO/commits/$SHA --jq '.author.login // empty' 2>/dev/null || echo "")
+             if [ -z "$LOGIN" ]; then
+                LOGIN=$(git log --format="%an" -n 1 $SHA)
+             fi
+             AVATAR=$(gh api repos/$REPO/commits/$SHA --jq '.author.avatar_url // empty' 2>/dev/null || echo "")
+             
+             if [[ "$LOGIN" == *" "* ]]; then
+               echo "* $TITLE by **$LOGIN** in $SHORT_SHA" >> release_notes.md
+             else
+               echo "* $TITLE by @$LOGIN in $SHORT_SHA" >> release_notes.md
+             fi
+             
+             # Check if seen
+             SEEN=false
+             for SA in "${SEEN_AUTHORS[@]}"; do
+                if [ "$SA" == "$LOGIN" ]; then
+                   SEEN=true
+                   break
+                fi
+             done
+             
+             if [ "$SEEN" = false ]; then
+                SEEN_AUTHORS+=("$LOGIN")
+                
+                if [ -n "$AVATAR" ]; then
+                   ITEM="<img src=\"$AVATAR\" width=\"24\" height=\"24\" style=\"border-radius: 50%; vertical-align: middle;\" alt=\"\"> $LOGIN"
+                else
+                   ITEM="$LOGIN"
+                fi
+                
+                if [ -z "$CONTRIBUTORS_HTML" ]; then
+                   CONTRIBUTORS_HTML="$ITEM"
+                else
+                   CONTRIBUTORS_HTML="$CONTRIBUTORS_HTML, $ITEM"
+                fi
+             fi
+          done
+
+          echo "" >> release_notes.md
+          echo "**Full Changelog**: $COMPARE_URL" >> release_notes.md
+
+          gh release create $TAG -F release_notes.md --title "$TAG"
