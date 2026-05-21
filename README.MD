@@ -175,6 +175,13 @@ setting('vite.scriptTagAttributes', [
 setting('vite.styleTagAttributes', [
     'data-turbo-track' => 'reload',
 ]);
+
+// Preload tags can be customized the same way:
+setting('vite.preloadTagAttributes', [
+    // Use `false` (or `null`) to omit an attribute entirely...
+    'crossorigin' => false,
+    'integrity'   => false,
+]);
 ```
 
 If you need to conditionally add attributes, you may pass a callback that will receive the asset source path, its URL, its manifest chunk, and the entire manifest:

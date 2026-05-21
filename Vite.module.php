@@ -26,7 +26,7 @@ class Vite extends WireData implements Module
         return [
             'title' => 'Vite',
             'summary' => __("Integrates Vite.js with ProcessWire for a modern frontend development workflow. This module simplifies asset bundling by automatically generating the correct script and style tags for your Vite-powered assets. It supports Hot Module Replacement (HMR) for instant feedback during development and reads Vite's manifest file in production for versioned/hashed assets, enabling efficient cache-busting.", __FILE__),
-            'version' => 3,
+            'version' => 4,
             'icon' => 'code',
             'singular' => true,
             'autoload' => true,

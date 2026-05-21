@@ -121,7 +121,8 @@ class Vite implements Stringable
                 }
 
                 if (!empty($staticAttributes)) {
-                    $resolvers[] = fn() => $staticAttributes;
+                    // Always accept the standard resolver arguments to avoid ArgumentCountError.
+                    $resolvers[] = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
                 }
             }
         }
@@ -424,7 +425,20 @@ class Vite implements Stringable
         };
 
         foreach ($resolvers as $resolver) {
-            $attributes = array_merge($attributes, $resolver($src, $url, $chunk, $manifest));
+            // Backwards/defensive: support both "static array" and callable resolvers.
+            if (is_array($resolver)) {
+                $attributes = array_merge($attributes, $resolver);
+                continue;
+            }
+
+            if (! is_callable($resolver)) {
+                continue;
+            }
+
+            $resolved = $resolver($src, $url, $chunk, $manifest);
+            if (is_array($resolved)) {
+                $attributes = array_merge($attributes, $resolved);
+            }
         }
 
         return $attributes;
@@ -632,7 +646,8 @@ class Vite implements Stringable
     public function useScriptTagAttributes(array|callable $attributes): static
     {
         if (! is_callable($attributes)) {
-            $attributes = fn() => $attributes;
+            $staticAttributes = $attributes;
+            $attributes = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
         }
 
         $this->scriptTagAttributesResolvers[] = $attributes;
@@ -646,7 +661,8 @@ class Vite implements Stringable
     public function useStyleTagAttributes(array|callable $attributes): static
     {
         if (! is_callable($attributes)) {
-            $attributes = fn() => $attributes;
+            $staticAttributes = $attributes;
+            $attributes = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
         }
 
         $this->styleTagAttributesResolvers[] = $attributes;
@@ -660,7 +676,8 @@ class Vite implements Stringable
     public function usePreloadTagAttributes(array|callable $attributes): static
     {
         if (! is_callable($attributes)) {
-            $attributes = fn() => $attributes;
+            $staticAttributes = $attributes;
+            $attributes = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
         }
 
         $this->preloadTagAttributesResolvers[] = $attributes;
