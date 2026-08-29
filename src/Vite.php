@@ -11,7 +11,7 @@ use function ProcessWire\setting;
 use function ProcessWire\wire;
 
 /**
- * An Vite adapter for ProcessWire
+ * A Vite adapter for ProcessWire
  *
  * @package   Totoglu Vite
  * @author    Iskender TOTOGLU <iskender@totoglu.com>
@@ -268,11 +268,20 @@ class Vite implements Stringable
     }
 
     /**
-     * Create a new Vite instance.
+     * Create or return the shared Vite singleton instance.
+     *
+     * Uses Late Static Binding (LSB) so that subclasses of Vite receive their
+     * own independent singleton cache via the static:: property accessor. The
+     * instance() callers (e.g. the vite() global helper) should intentionally
+     * invoke this on the concrete Vite class so LSB resolves correctly.
      */
     public static function instance(): static
     {
-        return static::$instance ??= new static();
+        if (!isset(static::$instance) || !static::$instance instanceof static) {
+            static::$instance = new static();
+        }
+
+        return static::$instance;
     }
 
     /**
