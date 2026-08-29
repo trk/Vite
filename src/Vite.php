@@ -808,6 +808,13 @@ class Vite implements Stringable
      */
     public function __toString(): string
     {
-        return $this->__invoke($this->entries);
+        try {
+            return $this->__invoke($this->entries);
+        } catch (\Throwable $e) {
+            if (class_exists(\ProcessWire\WireException::class)) {
+                \ProcessWire\wire('log')->error('Vite __toString exception: ' . $e->getMessage());
+            }
+            return '';
+        }
     }
 }
