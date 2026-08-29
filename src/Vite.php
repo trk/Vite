@@ -94,9 +94,59 @@ class Vite implements Stringable
         $this->manifest = $this->module->manifest;
         $this->nonce = $this->module->nonce;
 
+        $this->applyGlobalSettings();
+
         $this->scriptTagAttributesResolvers = $this->resolveUserSettings('vite.scriptTagAttributes');
         $this->styleTagAttributesResolvers = $this->resolveUserSettings('vite.styleTagAttributes');
         $this->preloadTagAttributesResolvers = $this->resolveUserSettings('vite.preloadTagAttributes');
+    }
+
+    /**
+     * Apply base configuration overrides declared via setting('vite', [...]).
+     * Each option accepts a scalar value or a callable that is evaluated lazily.
+     */
+    protected function applyGlobalSettings(): void
+    {
+        $global = setting('vite');
+
+        if ($global === null) {
+            return;
+        }
+
+        if (is_callable($global)) {
+            $global = $global();
+        }
+
+        if (!is_array($global)) {
+            return;
+        }
+
+        $optionMap = [
+            'rootPath'       => 'rootPath',
+            'rootUrl'        => 'rootUrl',
+            'buildDirectory' => 'buildDirectory',
+            'hotFile'        => 'hotFile',
+            'integrity'      => 'integrity',
+            'manifest'       => 'manifest',
+            'nonce'          => 'nonce',
+        ];
+
+        foreach ($optionMap as $settingKey => $property) {
+            if (!array_key_exists($settingKey, $global)) {
+                continue;
+            }
+
+            $value = $global[$settingKey];
+            if (is_callable($value)) {
+                $value = $value();
+            }
+
+            $this->{$property} = match ($settingKey) {
+                'integrity' => is_string($value) || $value === false ? $value : $this->{$property},
+                'nonce'     => $value === null || is_string($value) ? $value : $this->{$property},
+                default     => is_string($value) ? $value : $this->{$property},
+            };
+        }
     }
 
     /**
@@ -236,7 +286,7 @@ class Vite implements Stringable
     /**
      * Get the chunk for the given entry point / asset.
      *
-     * @throws \Exception
+     * @throws WireException
      */
     protected function chunk(array $manifest, string $file): array
     {
@@ -244,7 +294,16 @@ class Vite implements Stringable
             throw new WireException("Unable to locate file in Vite manifest: {$file}");
         }
 
-        return $manifest[$file];
+        $chunk = $manifest[$file];
+
+        if (! is_array($chunk) || ! isset($chunk['file']) || ! is_string($chunk['file'])) {
+            throw new WireException(sprintf(
+                'Malformed chunk in Vite manifest for entry "%s": missing or invalid "file" key.',
+                $file
+            ));
+        }
+
+        return $chunk;
     }
 
     /**
@@ -282,7 +341,25 @@ class Vite implements Stringable
                 throw new WireException("Vite manifest not found at: {$path}");
             }
 
-            static::$manifests[$path] = json_decode(file_get_contents($path), true);
+            $contents = file_get_contents($path);
+            if ($contents === false) {
+                throw new WireException("Vite manifest is not readable at: {$path}");
+            }
+
+            $manifest = json_decode($contents, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new WireException(sprintf(
+                    'Vite manifest at %s contains invalid JSON: %s',
+                    $path,
+                    json_last_error_msg()
+                ));
+            }
+
+            if (! is_array($manifest)) {
+                throw new WireException("Vite manifest at {$path} did not decode to an array.");
+            }
+
+            static::$manifests[$path] = $manifest;
         }
 
         return static::$manifests[$path];
@@ -518,10 +595,23 @@ class Vite implements Stringable
 
     /**
      * Get the path to a given asset when running in HMR mode.
+     *
+     * @throws WireException
      */
     public function hotAsset(string $asset): string
     {
-        return rtrim(file_get_contents($this->hotFile())) . '/' . $asset;
+        $hotPath = $this->hotFile();
+
+        if (! is_file($hotPath) || ! is_readable($hotPath)) {
+            throw new WireException("Vite hot file is missing or unreadable at: {$hotPath}");
+        }
+
+        $hotUrl = file_get_contents($hotPath);
+        if ($hotUrl === false || $hotUrl === '') {
+            throw new WireException("Vite hot file at {$hotPath} is empty or could not be read.");
+        }
+
+        return rtrim($hotUrl) . '/' . $asset;
     }
 
     /**
