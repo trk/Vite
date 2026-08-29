@@ -122,7 +122,7 @@ class Vite implements Stringable
 
                 if (!empty($staticAttributes)) {
                     // Always accept the standard resolver arguments to avoid ArgumentCountError.
-                    $resolvers[] = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
+                    $resolvers[] = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
                 }
             }
         }
@@ -647,7 +647,7 @@ class Vite implements Stringable
     {
         if (! is_callable($attributes)) {
             $staticAttributes = $attributes;
-            $attributes = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
+            $attributes = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
         }
 
         $this->scriptTagAttributesResolvers[] = $attributes;
@@ -662,7 +662,7 @@ class Vite implements Stringable
     {
         if (! is_callable($attributes)) {
             $staticAttributes = $attributes;
-            $attributes = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
+            $attributes = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
         }
 
         $this->styleTagAttributesResolvers[] = $attributes;
@@ -677,7 +677,7 @@ class Vite implements Stringable
     {
         if (! is_callable($attributes)) {
             $staticAttributes = $attributes;
-            $attributes = fn (string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
+            $attributes = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
         }
 
         $this->preloadTagAttributesResolvers[] = $attributes;
@@ -706,23 +706,24 @@ class Vite implements Stringable
     {
         $attrs = [];
         foreach ($attributes as $key => $value) {
-            // Skip attributes with null or false values
             if ($value === null || $value === false) {
                 continue;
             }
 
-            // Handle boolean true attributes (e.g., async, defer)
             if ($value === true) {
-                $attrs[] = htmlspecialchars((string) $key);
+                $attrs[] = htmlspecialchars((string) $key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 continue;
             }
 
-            // Convert non-string values to string
             if (!is_string($value)) {
-                $value = (string)$value;
+                $value = (string) $value;
             }
 
-            $attrs[] = sprintf('%1$s="%2$s"', $key, htmlspecialchars($value));
+            $attrs[] = sprintf(
+                '%1$s="%2$s"',
+                htmlspecialchars((string) $key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            );
         }
 
         return implode(' ', $attrs);
@@ -788,7 +789,7 @@ class Vite implements Stringable
 
         // regex that matches all characters
         // *not* in the pool of allowed characters
-        $regex = '/[^' . $pool . ']/';
+        $regex = '/[^' . preg_quote((string) $pool, '/') . ']/';
 
         // collect characters until we have our required length
         $result = '';
