@@ -95,7 +95,7 @@ class Vite extends WireData implements Module, ConfigurableModule
                 if (!is_dir($destPath)) {
                     $this->message("Creating directory: " . $relPath);
                     if (!wireMkdir($destPath)) {
-                        $this->error("Failed to create directory: " . $destPath . " — check filesytem permissions.");
+                        $this->error("Failed to create directory: " . $destPath . " — check filesystem permissions.");
                         continue;
                     }
                 }
@@ -123,7 +123,7 @@ class Vite extends WireData implements Module, ConfigurableModule
             }
 
             if (!@copy($sourcePath, $destPath)) {
-                $this->error("Failed to copy file from " . $sourcePath . " to " . $destPath . " — check filesytem permissions.");
+                $this->error("Failed to copy file from " . $sourcePath . " to " . $destPath . " — check filesystem permissions.");
                 continue;
             }
         }
@@ -197,14 +197,15 @@ class Vite extends WireData implements Module, ConfigurableModule
         $f->label = $this->_('Build Directory');
         $f->description = $this->_('Name of the build directory (relative to Root Path/URL) where Vite outputs production assets and the manifest.json file.');
         $f->attr('value', $data['buildDirectory'] ?? 'build');
+        $f->required = true;
         $wrapper->add($f);
 
         $f = $modules->get('InputfieldText');
         $f->attr('name', 'hotFile');
         $f->label = $this->_('Hot File');
-        $f->description = $this->_('Path to the Vite HMR "hot" file (relative to Root Path, or an absolute path). Leave empty to disable HMR detection.');
+        $f->description = $this->_('Path to the Vite HMR "hot" file (relative to Root Path, or an absolute path). Leave this field blank to completely disable Hot Module Replacement detection.');
         $f->attr('value', $data['hotFile'] ?? 'hot');
-        $f->notes = $this->_('For example: hot or /var/www/html/public/hot');
+        $f->notes = $this->_('For example: hot or /var/www/html/public/hot. Leave empty to disable HMR.');
         $wrapper->add($f);
 
         $f = $modules->get('InputfieldText');
@@ -212,6 +213,7 @@ class Vite extends WireData implements Module, ConfigurableModule
         $f->label = $this->_('Manifest Filename');
         $f->description = $this->_('Name of the Vite manifest file inside the Build Directory. Also checked under .vite/ subdirectory as a fallback.');
         $f->attr('value', $data['manifest'] ?? 'manifest.json');
+        $f->required = true;
         $wrapper->add($f);
 
         /** @var InputfieldRadios $integrity */
@@ -253,16 +255,32 @@ class Vite extends WireData implements Module, ConfigurableModule
             $data['integrity'] = false;
             unset($data['integrityToggle']);
         } elseif (isset($data['integrityToggle'])) {
-            if (!isset($data['integrity']) || trim((string) $data['integrity']) === '') {
+            if (!isset($data['integrity']) || !is_string($data['integrity']) || trim($data['integrity']) === '') {
                 $data['integrity'] = 'integrity';
             }
             unset($data['integrityToggle']);
         }
 
-        $stringClean = ['rootPath', 'rootUrl', 'buildDirectory', 'hotFile', 'manifest'];
-        foreach ($stringClean as $key) {
-            if (isset($data[$key]) && is_string($data[$key])) {
+        $defaults = [
+            'rootPath'       => $this->wire('config')->paths->templates,
+            'rootUrl'        => $this->wire('config')->urls->templates,
+            'buildDirectory' => 'build',
+            'manifest'       => 'manifest.json',
+        ];
+
+        foreach ($defaults as $key => $default) {
+            if (!isset($data[$key]) || !is_string($data[$key]) || trim($data[$key]) === '') {
+                $data[$key] = $default;
+            } else {
                 $data[$key] = trim($data[$key]);
+            }
+        }
+
+        if (isset($data['hotFile'])) {
+            if (!is_string($data['hotFile']) || trim($data['hotFile']) === '') {
+                $data['hotFile'] = null;
+            } else {
+                $data['hotFile'] = trim($data['hotFile']);
             }
         }
 

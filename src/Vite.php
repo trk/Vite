@@ -86,13 +86,26 @@ class Vite implements Stringable
     {
         $this->module = wire('vite');
 
-        $this->rootPath = $this->module->rootPath;
-        $this->rootUrl = $this->module->rootUrl;
-        $this->buildDirectory = $this->module->buildDirectory;
-        $this->hotFile = $this->module->hotFile;
-        $this->integrity = $this->module->integrity;
-        $this->manifest = $this->module->manifest;
-        $this->nonce = $this->module->nonce;
+        $this->rootPath       = (string) ($this->module->rootPath ?? wire('config')->paths->templates);
+        $this->rootUrl        = (string) ($this->module->rootUrl  ?? wire('config')->urls->templates);
+        $this->buildDirectory = is_string($this->module->buildDirectory) && $this->module->buildDirectory !== ''
+            ? $this->module->buildDirectory
+            : 'build';
+        $this->manifest       = is_string($this->module->manifest) && $this->module->manifest !== ''
+            ? $this->module->manifest
+            : 'manifest.json';
+
+        $this->hotFile = is_string($this->module->hotFile) && $this->module->hotFile !== ''
+            ? $this->module->hotFile
+            : null;
+
+        $this->integrity = ($this->module->integrity === false || is_string($this->module->integrity))
+            ? (is_string($this->module->integrity) && trim($this->module->integrity) === '' ? 'integrity' : $this->module->integrity)
+            : 'integrity';
+
+        $this->nonce = (is_string($this->module->nonce) && $this->module->nonce !== '')
+            ? $this->module->nonce
+            : null;
 
         $this->applyGlobalSettings();
 
@@ -142,8 +155,21 @@ class Vite implements Stringable
             }
 
             $this->{$property} = match ($settingKey) {
-                'integrity' => is_string($value) || $value === false ? $value : $this->{$property},
-                'nonce'     => $value === null || is_string($value) ? $value : $this->{$property},
+                'integrity' => $value === false
+                    ? false
+                    : (is_string($value) && trim($value) !== '' ? $value : $this->{$property}),
+                'nonce'     => $value === null
+                    ? null
+                    : (is_string($value) && trim($value) !== '' ? $value : $this->{$property}),
+                'hotFile'   => is_string($value) && trim($value) !== ''
+                    ? $value
+                    : null,
+                'buildDirectory' => is_string($value) && trim($value) !== ''
+                    ? $value
+                    : $this->{$property},
+                'manifest'  => is_string($value) && trim($value) !== ''
+                    ? $value
+                    : $this->{$property},
                 default     => is_string($value) ? $value : $this->{$property},
             };
         }
@@ -587,19 +613,27 @@ class Vite implements Stringable
     }
 
     /**
+     * Get the Vite "hot" file path.
+     *
+     * Returns an empty string when no hot file path is configured (i.e. HMR
+     * is explicitly disabled by leaving the configuration empty).
+     */
+    public function hotFile(): string
+    {
+        if (! is_string($this->hotFile) || trim($this->hotFile) === '') {
+            return '';
+        }
+
+        return $this->path($this->hotFile);
+    }
+
+    /**
      * Determine if the HMR server is running.
      */
     public function isRunningHot(): bool
     {
-        return is_file($this->hotFile());
-    }
-
-    /**
-     * Get the Vite "hot" file path.
-     */
-    public function hotFile(): string
-    {
-        return $this->hotFile ? $this->path($this->hotFile) : $this->path('hot');
+        $path = $this->hotFile();
+        return $path !== '' && is_file($path);
     }
 
     /**
@@ -639,8 +673,8 @@ class Vite implements Stringable
         foreach ($chunk['css'] ?? [] as $key) {
             $chunks = array_filter(
                 $manifest,
-                fn($value) =>
-                $value['file'] === $key
+                static fn($value) =>
+                is_array($value) && isset($value['file']) && is_string($value['file']) && $value['file'] === $key
             );
 
             if (empty($chunks)) {

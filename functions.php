@@ -13,3 +13,13 @@ if (!function_exists(__NAMESPACE__ . '\vite')) {
             : $vite;
     }
 }
+
+namespace {
+
+    if (!function_exists('vite')) {
+        function vite(array|string|null $entries = null): \Totoglu\Vite\Vite
+        {
+            return \ProcessWire\vite($entries);
+        }
+    }
+}
