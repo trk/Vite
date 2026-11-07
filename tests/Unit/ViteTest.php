@@ -78,8 +78,9 @@ it('supports withReactRefresh() fluent chain without bleeding into subsequent ca
 
 	setting('vite', [
 		'rootPath' => $this->tempDir,
-		'hotFile' => 'hot',
 	]);
+
+	expect(vite()->reactRefresh())->toStartWith('<script type="module">');
 
 	$firstHtml = (string) vite()
 		->withReactRefresh()
@@ -89,8 +90,8 @@ it('supports withReactRefresh() fluent chain without bleeding into subsequent ca
 	$secondHtml = (string) vite('templates/assets/js/extra.js');
 
 	expect($firstHtml)
+		->toContain('<script type="module" nonce="test-nonce-123">')
 		->toContain('import RefreshRuntime from \'http://localhost:5173/@react-refresh\'')
-		->toContain('nonce="test-nonce-123"')
 		->toContain('src="http://localhost:5173/templates/assets/js/app.jsx"')
 		->and($secondHtml)
 		->not->toContain('RefreshRuntime')

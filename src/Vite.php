@@ -60,7 +60,7 @@ class Vite extends Wire implements Stringable
 	/**
 	 * The path to the "hot" file.
 	 */
-	protected ?string $hotFile = null;
+	protected ?string $hotFile = 'hot';
 
 	/**
 	 * The path to the build directory.
@@ -695,7 +695,7 @@ class Vite extends Wire implements Stringable
 
 		return sprintf(
 			<<<'HTML'
-			<script type="module" %s>
+			<script %s>
 				import RefreshRuntime from '%s'
 				RefreshRuntime.injectIntoGlobalHook(window)
 				window.$RefreshReg$ = () => {}
@@ -703,7 +703,7 @@ class Vite extends Wire implements Stringable
 				window.__vite_plugin_react_preamble_installed__ = true
 			</script>
 			HTML,
-			$this->getAttributes(['nonce' => $this->nonce()]),
+			$this->getAttributes(['type' => 'module', 'nonce' => $this->nonce()]),
 			$this->hotAsset('@react-refresh')
 		);
 	}
