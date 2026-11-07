@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ProcessWire\Vite as ViteModule;
 use ProcessWire\WireException;
 use Totoglu\Vite\Vite;
 
@@ -12,9 +13,9 @@ use function ProcessWire\wire;
 beforeEach(function (): void {
 	Vite::flush(true);
 	setting('vite', []);
-	setting('vite.scriptTagAttributes', null);
-	setting('vite.styleTagAttributes', null);
-	setting('vite.preloadTagAttributes', null);
+	setting('vite.scriptTagAttributes', []);
+	setting('vite.styleTagAttributes', []);
+	setting('vite.preloadTagAttributes', []);
 
 	$this->tempDir = sys_get_temp_dir() . '/pw-vite-test-' . uniqid('', true);
 	mkdir($this->tempDir . '/build/.vite', 0777, true);
@@ -25,9 +26,9 @@ beforeEach(function (): void {
 afterEach(function (): void {
 	Vite::flush(true);
 	setting('vite', []);
-	setting('vite.scriptTagAttributes', null);
-	setting('vite.styleTagAttributes', null);
-	setting('vite.preloadTagAttributes', null);
+	setting('vite.scriptTagAttributes', []);
+	setting('vite.styleTagAttributes', []);
+	setting('vite.preloadTagAttributes', []);
 
 	if (isset($this->tempDir) && is_dir($this->tempDir)) {
 		wire()->files->rmdir($this->tempDir, true);
@@ -71,7 +72,7 @@ it('supports both relative and absolute hotFile paths and renders HMR tags', fun
 		->toContain('<script type="module" src="http://localhost:5173/templates/assets/js/app.js"></script>');
 });
 
-it('supports withReactRefresh() fluent chain in HMR mode', function (): void {
+it('supports withReactRefresh() fluent chain without bleeding into subsequent calls', function (): void {
 	$hotFile = $this->tempDir . '/hot';
 	file_put_contents($hotFile, 'http://localhost:5173');
 
@@ -80,15 +81,73 @@ it('supports withReactRefresh() fluent chain in HMR mode', function (): void {
 		'hotFile' => 'hot',
 	]);
 
-	$html = (string) vite()
+	$firstHtml = (string) vite()
 		->withReactRefresh()
 		->useNonce('test-nonce-123')
 		->withEntries(['templates/assets/js/app.jsx']);
 
-	expect($html)
+	$secondHtml = (string) vite('templates/assets/js/extra.js');
+
+	expect($firstHtml)
 		->toContain('import RefreshRuntime from \'http://localhost:5173/@react-refresh\'')
 		->toContain('nonce="test-nonce-123"')
-		->toContain('src="http://localhost:5173/templates/assets/js/app.jsx"');
+		->toContain('src="http://localhost:5173/templates/assets/js/app.jsx"')
+		->and($secondHtml)
+		->not->toContain('RefreshRuntime')
+		->toContain('src="http://localhost:5173/templates/assets/js/extra.js"');
+});
+
+it('applies setting() overrides even when configured after singleton instantiation', function (): void {
+	$manifest = [
+		'templates/assets/js/app.js' => [
+			'file' => 'assets/app-123.js',
+			'isEntry' => true,
+		],
+	];
+
+	file_put_contents(
+		$this->tempDir . '/build/manifest.json',
+		json_encode($manifest, JSON_THROW_ON_ERROR)
+	);
+
+	// Instantiate singleton BEFORE setting('vite', ...) is called
+	$singleton = Vite::instance();
+
+	setting('vite', [
+		'rootPath' => $this->tempDir,
+		'rootUrl' => 'https://late-cdn.example.com',
+		'hotFile' => '',
+	]);
+	setting('vite.scriptTagAttributes', [
+		'data-late-attr' => 'enabled',
+	]);
+
+	$html = $singleton('templates/assets/js/app.js');
+
+	expect($html)
+		->toContain('src="https://late-cdn.example.com/build/assets/app-123.js"')
+		->toContain('data-late-attr="enabled"');
+});
+
+it('normalizes ConfigurableModule data via setConfigData including integrityToggle disabled', function (): void {
+	$module = new ViteModule();
+
+	$module->setConfigData([
+		'rootPath' => '  /custom/path/  ',
+		'rootUrl' => '  /custom/url/  ',
+		'buildDirectory' => '  dist  ',
+		'hotFile' => '   ',
+		'integrityToggle' => 'disabled',
+		'integrity' => 'integrity',
+		'nonce' => '   ',
+	]);
+
+	expect($module->rootPath)->toBe('/custom/path/')
+		->and($module->rootUrl)->toBe('/custom/url/')
+		->and($module->buildDirectory)->toBe('dist')
+		->and($module->hotFile)->toBeNull()
+		->and($module->integrity)->toBeFalse()
+		->and($module->nonce)->toBeNull();
 });
 
 it('renders production manifest chunks, SRI integrity, transitive imports, and optional @ entries without leaking chunk state', function (): void {
@@ -122,7 +181,6 @@ it('renders production manifest chunks, SRI integrity, transitive imports, and o
 		json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
 	);
 
-	// Create an optional source file on disk that is NOT in the manifest to test @ entry non-leakage
 	file_put_contents($this->tempDir . '/templates/assets/js/unbuilt-optional.js', '// optional');
 
 	setting('vite', [
@@ -145,7 +203,7 @@ it('renders production manifest chunks, SRI integrity, transitive imports, and o
 		->toContain('<link rel="modulepreload" href="/site/templates/build/assets/deep-999.js" integrity="sha384-deepHash">')
 		->toContain('<link rel="stylesheet" href="/site/templates/build/assets/app-789.css" integrity="sha384-cssHash">')
 		->toContain('<script type="module" src="/site/templates/build/assets/app-123.js" integrity="sha384-appHash"></script>')
-		->and(substr_count($html, 'assets/app-123.js'))->toBe(2); // 1 preload + 1 script tag (not duplicated by leaked $chunk)
+		->and(substr_count($html, 'assets/app-123.js'))->toBe(2);
 });
 
 it('generates cryptographic 40-char nonce and merges custom tag attributes', function (): void {
@@ -190,6 +248,6 @@ it('throws WireException when required entry or manifest is missing', function (
 
 	$instance = new Vite();
 
-	expect(fn() => $instance('templates/assets/js/missing.js'))
+	expect(fn(): string => $instance('templates/assets/js/missing.js'))
 		->toThrow(WireException::class, 'Vite manifest not found');
 });
