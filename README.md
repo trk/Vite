@@ -155,6 +155,12 @@ Run the dev server with:
 npm run dev
 ```
 
+> **Valet / Herd HTTPS (`detectTls`):** When running Vite from inside
+> `site/templates/`, set `APP_URL=https://your-site.test` in
+> `site/templates/.env`. The starter `vite.config.js` automatically extracts the
+> hostname from `APP_URL` and passes it to `detectTls` so `laravel-vite-plugin`
+> secures the Vite HMR server with your local Valet/Herd TLS certificate.
+
 And build production assets with:
 
 ```bash
