@@ -88,6 +88,7 @@ it('supports withReactRefresh() fluent chain without bleeding into subsequent ca
 		->withEntries(['templates/assets/js/app.jsx']);
 
 	$secondHtml = (string) vite('templates/assets/js/extra.js');
+	$emptyHtml = (string) vite();
 
 	expect($firstHtml)
 		->toContain('<script type="module" nonce="test-nonce-123">')
@@ -95,7 +96,9 @@ it('supports withReactRefresh() fluent chain without bleeding into subsequent ca
 		->toContain('src="http://localhost:5173/templates/assets/js/app.jsx"')
 		->and($secondHtml)
 		->not->toContain('RefreshRuntime')
-		->toContain('src="http://localhost:5173/templates/assets/js/extra.js"');
+		->toContain('src="http://localhost:5173/templates/assets/js/extra.js"')
+		->and($emptyHtml)
+		->toBe('');
 });
 
 it('applies setting() overrides even when configured after singleton instantiation', function (): void {

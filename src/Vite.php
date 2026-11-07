@@ -130,43 +130,34 @@ class Vite extends Wire implements Stringable
 	}
 
 	/**
+	 * Normalize a single configuration option value by key.
+	 */
+	public static function normalizeConfigValue(string $key, mixed $value, mixed $fallback = null): mixed
+	{
+		if (is_callable($value)) {
+			$value = $value();
+		}
+
+		$trimmed = is_string($value) ? trim($value) : '';
+
+		return match ($key) {
+			'integrity' => $value === false ? false : ($trimmed !== '' ? $trimmed : $fallback),
+			'hotFile', 'nonce' => $trimmed !== '' ? $trimmed : null,
+			default => $trimmed !== '' ? $trimmed : $fallback,
+		};
+	}
+
+	/**
 	 * Normalize and apply an associative map of configuration options onto this instance.
 	 *
 	 * @param array<string, mixed> $options
 	 */
 	protected function applyConfigMap(array $options): void
 	{
-		$optionKeys = [
-			'rootPath',
-			'rootUrl',
-			'buildDirectory',
-			'hotFile',
-			'integrity',
-			'manifest',
-			'nonce',
-		];
-
-		foreach ($optionKeys as $settingKey) {
-			if (!array_key_exists($settingKey, $options) || isset($this->overriddenKeys[$settingKey])) {
-				continue;
+		foreach (['rootPath', 'rootUrl', 'buildDirectory', 'hotFile', 'integrity', 'manifest', 'nonce'] as $settingKey) {
+			if (array_key_exists($settingKey, $options) && !isset($this->overriddenKeys[$settingKey])) {
+				$this->{$settingKey} = self::normalizeConfigValue($settingKey, $options[$settingKey], $this->{$settingKey});
 			}
-
-			$value = $options[$settingKey];
-			if (is_callable($value)) {
-				$value = $value();
-			}
-
-			$this->{$settingKey} = match ($settingKey) {
-				'integrity' => $value === false
-					? false
-					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->integrity),
-				'hotFile', 'nonce' => is_string($value) && trim($value) !== ''
-					? trim($value)
-					: null,
-				default => is_string($value) && trim($value) !== ''
-					? trim($value)
-					: $this->{$settingKey},
-			};
 		}
 	}
 
@@ -177,15 +168,7 @@ class Vite extends Wire implements Stringable
 	protected function applyGlobalSettings(): void
 	{
 		if ($this->module !== null) {
-			$this->applyConfigMap([
-				'rootPath' => $this->module->rootPath,
-				'rootUrl' => $this->module->rootUrl,
-				'buildDirectory' => $this->module->buildDirectory,
-				'hotFile' => $this->module->hotFile,
-				'integrity' => $this->module->integrity,
-				'manifest' => $this->module->manifest,
-				'nonce' => $this->module->nonce,
-			]);
+			$this->applyConfigMap($this->module->getArray());
 		}
 
 		$global = setting('vite');
@@ -721,7 +704,7 @@ class Vite extends Wire implements Stringable
 	/**
 	 * Determine whether the given path is a stylesheet file.
 	 */
-	public function isStylePath(string $path): bool
+	protected function isStylePath(string $path): bool
 	{
 		return preg_match('/\.(css|less|sass|scss|styl|stylus|pcss|postcss)$/', $path) === 1;
 	}
@@ -984,7 +967,7 @@ class Vite extends Wire implements Stringable
 	 *
 	 * @param array<string, mixed> $attributes
 	 */
-	public function getAttributes(array $attributes): string
+	protected function getAttributes(array $attributes): string
 	{
 		$attrs = [];
 		foreach ($attributes as $key => $value) {
@@ -1045,8 +1028,11 @@ class Vite extends Wire implements Stringable
 	 */
 	public function __toString(): string
 	{
+		$entries = $this->entries;
+		$this->entries = [];
+
 		try {
-			return $this->__invoke($this->entries);
+			return $this->__invoke($entries);
 		} catch (\Throwable $e) {
 			$this->wire()->log?->error('Vite __toString exception: ' . $e->getMessage());
 			return '';

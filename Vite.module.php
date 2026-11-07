@@ -93,25 +93,14 @@ class Vite extends WireData implements Module, ConfigurableModule
 	{
 		$normalized = $this->getDefaultConfig();
 
-		$requiredStrings = ['rootPath', 'rootUrl', 'buildDirectory', 'manifest'];
-		foreach ($requiredStrings as $key) {
-			if (isset($data[$key]) && is_string($data[$key]) && trim($data[$key]) !== '') {
-				$normalized[$key] = trim($data[$key]);
-			}
+		if (($data['integrityToggle'] ?? null) === 'disabled') {
+			$data['integrity'] = false;
 		}
 
-		foreach (['hotFile', 'nonce'] as $key) {
+		foreach ($normalized as $key => $default) {
 			if (array_key_exists($key, $data)) {
-				$normalized[$key] = is_string($data[$key]) && trim($data[$key]) !== ''
-					? trim($data[$key])
-					: null;
+				$normalized[$key] = \Totoglu\Vite\Vite::normalizeConfigValue($key, $data[$key], $default);
 			}
-		}
-
-		if (($data['integrityToggle'] ?? null) === 'disabled' || ($data['integrity'] ?? null) === false) {
-			$normalized['integrity'] = false;
-		} elseif (isset($data['integrity']) && is_string($data['integrity']) && trim($data['integrity']) !== '') {
-			$normalized['integrity'] = trim($data['integrity']);
 		}
 
 		return $normalized;
@@ -184,7 +173,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 				continue;
 			}
 
-			if (!@copy($sourcePath, $destPath)) {
+			if (!$files->copy($sourcePath, $destPath)) {
 				$this->error(sprintf($this->_('Failed to copy file from %1$s to %2$s — check filesystem permissions.'), $sourcePath, $destPath));
 			}
 		}
