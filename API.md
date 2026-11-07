@@ -37,6 +37,8 @@ setting('vite', [
 | `useIntegrity` | `public function useIntegrity(string\|false $key): static` | Sets the manifest chunk key used for Subresource Integrity (`'integrity'`) or `false` to disable SRI. |
 | `useHotFile` | `public function useHotFile(string $path): static` | Sets the HMR hot file path (relative to `rootPath` or an absolute filesystem path). Pass `''` to disable HMR detection. |
 | `useBuildDirectory` | `public function useBuildDirectory(string $path): static` | Sets the production build directory relative to `rootPath` / `rootUrl` (default: `'build'`). |
+| `useRootPath` | `public function useRootPath(string $path): static` | Sets the filesystem base path used to resolve Vite assets. |
+| `useRootUrl` | `public function useRootUrl(string $url): static` | Sets the public URL base path used to generate Vite asset URLs. |
 | `useScriptTagAttributes` | `public function useScriptTagAttributes(array\|callable $attributes): static` | Registers static attributes or a `fn(string $src, string $url, array $chunk, array $manifest): array` resolver for `<script>` tags. |
 | `useStyleTagAttributes` | `public function useStyleTagAttributes(array\|callable $attributes): static` | Registers static attributes or a resolver for `<link rel="stylesheet">` tags. |
 | `usePreloadTagAttributes` | `public function usePreloadTagAttributes(array\|callable $attributes): static` | Registers static attributes or a resolver for `<link rel="preload">` / `<link rel="modulepreload">` tags. |
