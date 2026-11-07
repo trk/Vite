@@ -37,7 +37,7 @@ The stubs give you a working starting point with:
 - a `package.json` with pinned dev-dependency versions
 - a `vite.config.js` already configured for a typical ProcessWire project
   layout (entry points inside `templates/assets/`)
-- an optional Tailwind + PostCSS setup
+- a `.env` file for `APP_URL` and automatic Valet / Herd TLS detection
 - example `app.css` and `app.js` entry files
 
 You can browse the latest upstream stub files on GitHub at:
