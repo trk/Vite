@@ -59,6 +59,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 
 	public function wired(): void
 	{
+		parent::wired();
 		$this->wire('vite', $this);
 	}
 
@@ -133,39 +134,39 @@ class Vite extends WireData implements Module, ConfigurableModule
 	}
 
 	/**
-	 * Recursively copy starter stub files to destination without overwriting existing files.
+	 * Copy starter stub files into the active site directory without overwriting existing files.
 	 */
-	protected function copyStubFilesRecursive(string $sourceDir, string $destDir, string $relativePath = ''): void
+	protected function copyStubFiles(): void
 	{
+		$stubsDir = __DIR__ . '/stubs';
+		$siteDir = rtrim((string) $this->wire()->config->paths->site, '/\\');
 		$files = $this->wire()->files;
-		$sourceFullPath = rtrim($sourceDir, '/\\') . ($relativePath !== '' ? '/' . ltrim($relativePath, '/\\') : '');
 
-		if (!is_dir($sourceFullPath) || !is_readable($sourceFullPath)) {
-			$this->error(sprintf($this->_('Source directory is missing or unreadable: %s'), $sourceFullPath));
+		if (!is_dir($stubsDir) || !is_readable($stubsDir)) {
+			$this->error(sprintf($this->_('Stubs directory not found or unreadable: %s'), $stubsDir));
 			return;
 		}
 
-		$dir = new \DirectoryIterator($sourceFullPath);
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($stubsDir, \FilesystemIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::SELF_FIRST
+		);
 
-		foreach ($dir as $fileInfo) {
-			if ($fileInfo->isDot()) {
-				continue;
-			}
+		$prefixLength = strlen(rtrim($stubsDir, '/\\')) + 1;
 
+		/** @var \SplFileInfo $fileInfo */
+		foreach ($iterator as $fileInfo) {
 			$sourcePath = $fileInfo->getPathname();
-			$relPath = ($relativePath !== '' ? rtrim($relativePath, '/\\') . '/' : '') . $fileInfo->getFilename();
-			$destPath = rtrim($destDir, '/\\') . '/' . ltrim($relPath, '/\\');
+			$relPath = str_replace('\\', '/', substr($sourcePath, $prefixLength));
+			$destPath = $siteDir . '/' . ltrim($relPath, '/');
 
 			if ($fileInfo->isDir()) {
 				if (!is_dir($destPath)) {
 					$this->message(sprintf($this->_('Creating directory: %s'), $relPath));
 					if (!$files->mkdir($destPath, true)) {
 						$this->error(sprintf($this->_('Failed to create directory: %s — check filesystem permissions.'), $destPath));
-						continue;
 					}
 				}
-
-				$this->copyStubFilesRecursive($sourceDir, $destDir, $relPath);
 				continue;
 			}
 
@@ -189,25 +190,9 @@ class Vite extends WireData implements Module, ConfigurableModule
 
 			if (!@copy($sourcePath, $destPath)) {
 				$this->error(sprintf($this->_('Failed to copy file from %1$s to %2$s — check filesystem permissions.'), $sourcePath, $destPath));
-				continue;
 			}
 		}
-	}
 
-	/**
-	 * Copy starter stub files into the active site directory.
-	 */
-	protected function copyStubFiles(): void
-	{
-		$stubsDir = __DIR__ . '/stubs';
-		$siteDir = (string) $this->wire()->config->paths->site;
-
-		if (!is_dir($stubsDir)) {
-			$this->error(sprintf($this->_('Stubs directory not found: %s'), $stubsDir));
-			return;
-		}
-
-		$this->copyStubFilesRecursive($stubsDir, $siteDir);
 		$this->message($this->_('Vite stub files have been copied to site templates directory.'));
 	}
 

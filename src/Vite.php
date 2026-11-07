@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Totoglu\Vite;
 
 use Stringable;
+use ProcessWire\Wire;
 use ProcessWire\WireException;
 
 use function ProcessWire\setting;
-use function ProcessWire\wire;
 
 /**
  * A Vite adapter for ProcessWire
@@ -19,7 +19,7 @@ use function ProcessWire\wire;
  * @copyright 2026 Iskender TOTOGLU
  * @license   https://opensource.org/licenses/MIT
  */
-class Vite implements Stringable
+class Vite extends Wire implements Stringable
 {
 	/**
 	 * The Vite Module instance.
@@ -113,28 +113,18 @@ class Vite implements Stringable
 	 */
 	public function __construct(?\ProcessWire\Vite $module = null)
 	{
-		$wiredModule = $module ?? wire('vite');
+		parent::__construct();
+
+		$wiredModule = $module ?? $this->wire()->vite;
 		$this->module = $wiredModule instanceof \ProcessWire\Vite ? $wiredModule : null;
 
-		$config = wire()->config;
+		$config = $this->wire()->config;
 		$this->rootPath = is_object($config) && isset($config->paths->templates)
 			? (string) $config->paths->templates
 			: '';
 		$this->rootUrl = is_object($config) && isset($config->urls->templates)
 			? (string) $config->urls->templates
 			: '/';
-
-		if ($this->module !== null) {
-			$this->applyConfigMap([
-				'rootPath' => $this->module->rootPath,
-				'rootUrl' => $this->module->rootUrl,
-				'buildDirectory' => $this->module->buildDirectory,
-				'hotFile' => $this->module->hotFile,
-				'integrity' => $this->module->integrity,
-				'manifest' => $this->module->manifest,
-				'nonce' => $this->module->nonce,
-			]);
-		}
 
 		$this->applyGlobalSettings();
 	}
@@ -188,11 +178,23 @@ class Vite implements Stringable
 	}
 
 	/**
-	 * Apply base configuration overrides declared via setting('vite', [...]).
+	 * Synchronize module configuration and apply overrides declared via setting('vite', [...]).
 	 * Each option accepts a scalar value or a callable that is evaluated lazily.
 	 */
 	protected function applyGlobalSettings(): void
 	{
+		if ($this->module !== null) {
+			$this->applyConfigMap([
+				'rootPath' => $this->module->rootPath,
+				'rootUrl' => $this->module->rootUrl,
+				'buildDirectory' => $this->module->buildDirectory,
+				'hotFile' => $this->module->hotFile,
+				'integrity' => $this->module->integrity,
+				'manifest' => $this->module->manifest,
+				'nonce' => $this->module->nonce,
+			], true);
+		}
+
 		$global = setting('vite');
 
 		if ($global === null) {
@@ -420,7 +422,7 @@ class Vite implements Stringable
 	 */
 	protected function exists(string $file): bool
 	{
-		$config = wire()->config;
+		$config = $this->wire()->config;
 		$candidatePaths = [$this->rootPath];
 
 		if (is_object($config) && isset($config->paths)) {
@@ -428,7 +430,12 @@ class Vite implements Stringable
 			$candidatePaths[] = (string) $config->paths->templates;
 		}
 
-		foreach (array_unique(array_filter($candidatePaths)) as $basePath) {
+		$validPaths = array_unique(array_filter(
+			$candidatePaths,
+			static fn(string $path): bool => $path !== ''
+		));
+
+		foreach ($validPaths as $basePath) {
 			if (file_exists($this->path($file, $basePath))) {
 				return true;
 			}
@@ -1067,9 +1074,7 @@ class Vite implements Stringable
 		try {
 			return $this->__invoke($this->entries);
 		} catch (\Throwable $e) {
-			if (class_exists(WireException::class)) {
-				wire()->log?->error('Vite __toString exception: ' . $e->getMessage());
-			}
+			$this->wire()->log?->error('Vite __toString exception: ' . $e->getMessage());
 			return '';
 		}
 	}
