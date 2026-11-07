@@ -73,7 +73,14 @@ class Vite implements Stringable
 	protected string $manifest = 'manifest.json';
 
 	/**
-	 * The preloaded assets registered during the latest render pass.
+	 * Properties explicitly overridden via fluent use*() methods on this instance.
+	 *
+	 * @var array<string, bool>
+	 */
+	protected array $overriddenKeys = [];
+
+	/**
+	 * The preloaded assets registered on this instance.
 	 *
 	 * @var array<string, string>
 	 */
@@ -109,45 +116,75 @@ class Vite implements Stringable
 		$wiredModule = $module ?? wire('vite');
 		$this->module = $wiredModule instanceof \ProcessWire\Vite ? $wiredModule : null;
 
-		$config = wire('config');
-		$defaultRootPath = is_object($config) && isset($config->paths->templates)
+		$config = wire()->config;
+		$this->rootPath = is_object($config) && isset($config->paths->templates)
 			? (string) $config->paths->templates
 			: '';
-		$defaultRootUrl = is_object($config) && isset($config->urls->templates)
+		$this->rootUrl = is_object($config) && isset($config->urls->templates)
 			? (string) $config->urls->templates
 			: '/';
 
-		$this->rootPath = is_string($this->module?->rootPath) && trim($this->module->rootPath) !== ''
-			? trim($this->module->rootPath)
-			: $defaultRootPath;
-		$this->rootUrl = is_string($this->module?->rootUrl) && trim($this->module->rootUrl) !== ''
-			? trim($this->module->rootUrl)
-			: $defaultRootUrl;
-		$this->buildDirectory = is_string($this->module?->buildDirectory) && trim($this->module->buildDirectory) !== ''
-			? trim($this->module->buildDirectory)
-			: 'build';
-		$this->manifest = is_string($this->module?->manifest) && trim($this->module->manifest) !== ''
-			? trim($this->module->manifest)
-			: 'manifest.json';
-
-		$this->hotFile = is_string($this->module?->hotFile) && trim($this->module->hotFile) !== ''
-			? trim($this->module->hotFile)
-			: null;
-
-		$moduleIntegrity = $this->module?->integrity;
-		$this->integrity = $moduleIntegrity === false
-			? false
-			: (is_string($moduleIntegrity) && trim($moduleIntegrity) !== '' ? trim($moduleIntegrity) : 'integrity');
-
-		$this->nonce = is_string($this->module?->nonce) && trim($this->module->nonce) !== ''
-			? trim($this->module->nonce)
-			: null;
+		if ($this->module !== null) {
+			$this->applyConfigMap([
+				'rootPath' => $this->module->rootPath,
+				'rootUrl' => $this->module->rootUrl,
+				'buildDirectory' => $this->module->buildDirectory,
+				'hotFile' => $this->module->hotFile,
+				'integrity' => $this->module->integrity,
+				'manifest' => $this->module->manifest,
+				'nonce' => $this->module->nonce,
+			]);
+		}
 
 		$this->applyGlobalSettings();
+	}
 
-		$this->scriptTagAttributesResolvers = $this->resolveUserSettings('vite.scriptTagAttributes');
-		$this->styleTagAttributesResolvers = $this->resolveUserSettings('vite.styleTagAttributes');
-		$this->preloadTagAttributesResolvers = $this->resolveUserSettings('vite.preloadTagAttributes');
+	/**
+	 * Normalize and apply an associative map of configuration options onto this instance.
+	 *
+	 * @param array<string, mixed> $options
+	 */
+	protected function applyConfigMap(array $options, bool $respectFluentOverrides = false): void
+	{
+		$optionKeys = [
+			'rootPath',
+			'rootUrl',
+			'buildDirectory',
+			'hotFile',
+			'integrity',
+			'manifest',
+			'nonce',
+		];
+
+		foreach ($optionKeys as $settingKey) {
+			if (!array_key_exists($settingKey, $options)) {
+				continue;
+			}
+
+			if ($respectFluentOverrides && isset($this->overriddenKeys[$settingKey])) {
+				continue;
+			}
+
+			$value = $options[$settingKey];
+			if (is_callable($value)) {
+				$value = $value();
+			}
+
+			$this->{$settingKey} = match ($settingKey) {
+				'integrity' => $value === false
+					? false
+					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->integrity),
+				'nonce' => $value === null
+					? null
+					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->nonce),
+				'hotFile' => is_string($value) && trim($value) !== ''
+					? trim($value)
+					: null,
+				default => is_string($value) && trim($value) !== ''
+					? trim($value)
+					: $this->{$settingKey},
+			};
+		}
 	}
 
 	/**
@@ -170,41 +207,7 @@ class Vite implements Stringable
 			return;
 		}
 
-		$optionKeys = [
-			'rootPath',
-			'rootUrl',
-			'buildDirectory',
-			'hotFile',
-			'integrity',
-			'manifest',
-			'nonce',
-		];
-
-		foreach ($optionKeys as $settingKey) {
-			if (!array_key_exists($settingKey, $global)) {
-				continue;
-			}
-
-			$value = $global[$settingKey];
-			if (is_callable($value)) {
-				$value = $value();
-			}
-
-			$this->{$settingKey} = match ($settingKey) {
-				'integrity' => $value === false
-					? false
-					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->integrity),
-				'nonce' => $value === null
-					? null
-					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->nonce),
-				'hotFile' => is_string($value) && trim($value) !== ''
-					? trim($value)
-					: null,
-				default => is_string($value) && trim($value) !== ''
-					? trim($value)
-					: $this->{$settingKey},
-			};
-		}
+		$this->applyConfigMap($global, true);
 	}
 
 	/**
@@ -268,9 +271,12 @@ class Vite implements Stringable
 	 */
 	public function __invoke(array|string $entries, ?string $buildDirectory = null): string
 	{
+		$this->applyGlobalSettings();
+
 		$entries = array_values((array) $entries);
 		$exists = [];
 		$prefix = $this->includeReactRefresh ? $this->reactRefresh() : '';
+		$this->includeReactRefresh = false;
 
 		foreach ($entries as $key => $value) {
 			if (str_starts_with($value, '@')) {
@@ -414,7 +420,7 @@ class Vite implements Stringable
 	 */
 	protected function exists(string $file): bool
 	{
-		$config = wire('config');
+		$config = wire()->config;
 		$candidatePaths = [$this->rootPath];
 
 		if (is_object($config) && isset($config->paths)) {
@@ -573,6 +579,26 @@ class Vite implements Stringable
 	}
 
 	/**
+	 * Resolve integrity and custom attributes for a given tag resolver group.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 * @return array<string, mixed>
+	 */
+	protected function resolveTagAttributes(
+		string $resolverGroup,
+		string $src,
+		string $url,
+		array $chunk = [],
+		array $manifest = []
+	): array {
+		return array_merge(
+			$this->resolveIntegrityAttribute($chunk),
+			$this->attributesResolver($resolverGroup, $src, $url, $chunk, $manifest)
+		);
+	}
+
+	/**
 	 * Resolve the attributes for the chunk's generated script tag.
 	 *
 	 * @param array<string, mixed> $chunk
@@ -581,10 +607,7 @@ class Vite implements Stringable
 	 */
 	protected function resolveScriptTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
 	{
-		return array_merge(
-			$this->resolveIntegrityAttribute($chunk),
-			$this->attributesResolver('scriptTagAttributes', $src, $url, $chunk, $manifest)
-		);
+		return $this->resolveTagAttributes('scriptTagAttributes', $src, $url, $chunk, $manifest);
 	}
 
 	/**
@@ -596,10 +619,7 @@ class Vite implements Stringable
 	 */
 	protected function resolveStyleTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
 	{
-		return array_merge(
-			$this->resolveIntegrityAttribute($chunk),
-			$this->attributesResolver('styleTagAttributes', $src, $url, $chunk, $manifest)
-		);
+		return $this->resolveTagAttributes('styleTagAttributes', $src, $url, $chunk, $manifest);
 	}
 
 	/**
@@ -626,13 +646,12 @@ class Vite implements Stringable
 
 		return array_merge(
 			$attributes,
-			$this->resolveIntegrityAttribute($chunk),
-			$this->attributesResolver('preloadTagAttributes', $src, $url, $chunk, $manifest)
+			$this->resolveTagAttributes('preloadTagAttributes', $src, $url, $chunk, $manifest)
 		);
 	}
 
 	/**
-	 * Execute registered attribute resolvers for the given tag type.
+	 * Execute registered and global setting attribute resolvers for the given tag type.
 	 *
 	 * @param array<string, mixed> $chunk
 	 * @param array<string, mixed> $manifest
@@ -642,12 +661,14 @@ class Vite implements Stringable
 	{
 		$attributes = [];
 
-		$resolvers = match ($name) {
+		$instanceResolvers = match ($name) {
 			'scriptTagAttributes' => $this->scriptTagAttributesResolvers,
 			'styleTagAttributes' => $this->styleTagAttributesResolvers,
 			'preloadTagAttributes' => $this->preloadTagAttributesResolvers,
 			default => [],
 		};
+
+		$resolvers = array_merge($this->resolveUserSettings("vite.{$name}"), $instanceResolvers);
 
 		foreach ($resolvers as $resolver) {
 			$resolved = $resolver($src, $url, $chunk, $manifest);
@@ -674,6 +695,8 @@ class Vite implements Stringable
 	 */
 	public function asset(string $asset, ?string $buildDirectory = null): string
 	{
+		$this->applyGlobalSettings();
+
 		$buildDirectory ??= $this->buildDirectory;
 
 		if ($this->isRunningHot()) {
@@ -735,6 +758,8 @@ class Vite implements Stringable
 	 */
 	public function hotFile(): string
 	{
+		$this->applyGlobalSettings();
+
 		if (!is_string($this->hotFile) || trim($this->hotFile) === '') {
 			return '';
 		}
@@ -784,6 +809,8 @@ class Vite implements Stringable
 	 */
 	public function nonce(): ?string
 	{
+		$this->applyGlobalSettings();
+
 		return $this->nonce;
 	}
 
@@ -795,7 +822,7 @@ class Vite implements Stringable
 	 * @param array<string, string> $assets
 	 * @param array<string, string> $preloads
 	 */
-	public function resolveCss(array $chunk, string $buildDirectory, array $manifest, array &$assets, array &$preloads): void
+	protected function resolveCss(array $chunk, string $buildDirectory, array $manifest, array &$assets, array &$preloads): void
 	{
 		foreach ($chunk['css'] ?? [] as $cssFile) {
 			if (!is_string($cssFile)) {
@@ -842,7 +869,7 @@ class Vite implements Stringable
 	 * @param array<string, string> $preloads
 	 * @param array<string, bool> $visited
 	 */
-	public function resolveImports(
+	protected function resolveImports(
 		array $chunk,
 		string $buildDirectory,
 		array $manifest,
@@ -879,6 +906,7 @@ class Vite implements Stringable
 	public function useNonce(?string $nonce = null): static
 	{
 		$this->nonce = $nonce ?? bin2hex(random_bytes(20));
+		$this->overriddenKeys['nonce'] = true;
 
 		return $this;
 	}
@@ -889,6 +917,7 @@ class Vite implements Stringable
 	public function useManifest(string $name): static
 	{
 		$this->manifest = $name;
+		$this->overriddenKeys['manifest'] = true;
 
 		return $this;
 	}
@@ -899,6 +928,7 @@ class Vite implements Stringable
 	public function useIntegrity(string|false $key): static
 	{
 		$this->integrity = $key;
+		$this->overriddenKeys['integrity'] = true;
 
 		return $this;
 	}
@@ -909,6 +939,7 @@ class Vite implements Stringable
 	public function useHotFile(string $path): static
 	{
 		$this->hotFile = $path;
+		$this->overriddenKeys['hotFile'] = true;
 
 		return $this;
 	}
@@ -919,6 +950,7 @@ class Vite implements Stringable
 	public function useBuildDirectory(string $path): static
 	{
 		$this->buildDirectory = $path;
+		$this->overriddenKeys['buildDirectory'] = true;
 
 		return $this;
 	}
@@ -1008,6 +1040,8 @@ class Vite implements Stringable
 	 */
 	public function url(?string $path = null): string
 	{
+		$this->applyGlobalSettings();
+
 		$baseUrl = rtrim($this->rootUrl, '/') . '/';
 
 		return $baseUrl . ltrim((string) $path, '/');
@@ -1018,6 +1052,8 @@ class Vite implements Stringable
 	 */
 	protected function path(?string $file = null, ?string $path = null): string
 	{
+		$this->applyGlobalSettings();
+
 		$basePath = rtrim($path ?? $this->rootPath, '/\\') . '/';
 
 		return $basePath . ltrim((string) $file, '/\\');
@@ -1032,7 +1068,7 @@ class Vite implements Stringable
 			return $this->__invoke($this->entries);
 		} catch (\Throwable $e) {
 			if (class_exists(WireException::class)) {
-				wire('log')?->error('Vite __toString exception: ' . $e->getMessage());
+				wire()->log?->error('Vite __toString exception: ' . $e->getMessage());
 			}
 			return '';
 		}

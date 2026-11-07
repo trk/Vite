@@ -22,8 +22,6 @@ namespace ProcessWire;
  * @property string|null $nonce Content Security Policy nonce value applied to generated tags.
  *
  * @method void install()
- * @method array<string, mixed> installConfig()
- * @method array<string, mixed> getConfig(array $data)
  */
 class Vite extends WireData implements Module, ConfigurableModule
 {
@@ -56,9 +54,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 
 		require_once __DIR__ . '/functions.php';
 
-		foreach ($this->getDefaultConfig() as $key => $value) {
-			$this->set($key, $value);
-		}
+		$this->setConfigData([]);
 	}
 
 	public function wired(): void
@@ -84,6 +80,56 @@ class Vite extends WireData implements Module, ConfigurableModule
 			'manifest' => 'manifest.json',
 			'nonce' => null,
 		];
+	}
+
+	/**
+	 * Normalize raw configuration array against module defaults.
+	 *
+	 * @param array<string, mixed> $data
+	 * @return array{rootPath: string, rootUrl: string, buildDirectory: string, hotFile: string|null, integrity: string|false, manifest: string, nonce: string|null}
+	 */
+	public function normalizeConfig(array $data): array
+	{
+		$normalized = $this->getDefaultConfig();
+
+		$requiredStrings = ['rootPath', 'rootUrl', 'buildDirectory', 'manifest'];
+		foreach ($requiredStrings as $key) {
+			if (isset($data[$key]) && is_string($data[$key]) && trim($data[$key]) !== '') {
+				$normalized[$key] = trim($data[$key]);
+			}
+		}
+
+		if (array_key_exists('hotFile', $data)) {
+			$normalized['hotFile'] = is_string($data['hotFile']) && trim($data['hotFile']) !== ''
+				? trim($data['hotFile'])
+				: null;
+		}
+
+		if (array_key_exists('nonce', $data)) {
+			$normalized['nonce'] = is_string($data['nonce']) && trim($data['nonce']) !== ''
+				? trim($data['nonce'])
+				: null;
+		}
+
+		if (($data['integrityToggle'] ?? null) === 'disabled' || ($data['integrity'] ?? null) === false) {
+			$normalized['integrity'] = false;
+		} elseif (isset($data['integrity']) && is_string($data['integrity']) && trim($data['integrity']) !== '') {
+			$normalized['integrity'] = trim($data['integrity']);
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Receive and normalize configuration data from ProcessWire.
+	 *
+	 * @param array<string, mixed> $data
+	 */
+	public function setConfigData(array $data): void
+	{
+		foreach ($this->normalizeConfig($data) as $key => $value) {
+			$this->set($key, $value);
+		}
 	}
 
 	/**
@@ -171,20 +217,12 @@ class Vite extends WireData implements Module, ConfigurableModule
 	}
 
 	/**
-	 * @return array<string, mixed>
-	 */
-	public function ___installConfig(): array
-	{
-		return $this->getDefaultConfig();
-	}
-
-	/**
 	 * @param array<string, mixed> $data
 	 */
 	public function getModuleConfigInputfields(array $data): InputfieldWrapper
 	{
 		$modules = $this->wire()->modules;
-		$defaults = $this->getDefaultConfig();
+		$normalized = $this->normalizeConfig($data);
 
 		/** @var InputfieldWrapper $wrapper */
 		$wrapper = $modules->get('InputfieldWrapper');
@@ -194,7 +232,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 		$f->attr('name', 'rootPath');
 		$f->label = $this->_('Root Path');
 		$f->description = $this->_('Filesystem base path used to resolve Vite assets and manifest/hot files. Defaults to the ProcessWire templates directory.');
-		$f->attr('value', $data['rootPath'] ?? $defaults['rootPath']);
+		$f->attr('value', $normalized['rootPath']);
 		$f->notes = $this->_('Example: /var/www/html/site/templates/');
 		$f->required = true;
 		$wrapper->add($f);
@@ -204,7 +242,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 		$f->attr('name', 'rootUrl');
 		$f->label = $this->_('Root URL');
 		$f->description = $this->_('URL base path used to generate asset links. Defaults to the ProcessWire templates URL.');
-		$f->attr('value', $data['rootUrl'] ?? $defaults['rootUrl']);
+		$f->attr('value', $normalized['rootUrl']);
 		$f->notes = $this->_('Example: /site/templates/');
 		$f->required = true;
 		$wrapper->add($f);
@@ -214,7 +252,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 		$f->attr('name', 'buildDirectory');
 		$f->label = $this->_('Build Directory');
 		$f->description = $this->_('Name of the build directory (relative to Root Path/URL) where Vite outputs production assets and the manifest.json file.');
-		$f->attr('value', $data['buildDirectory'] ?? $defaults['buildDirectory']);
+		$f->attr('value', $normalized['buildDirectory']);
 		$f->required = true;
 		$wrapper->add($f);
 
@@ -223,7 +261,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 		$f->attr('name', 'hotFile');
 		$f->label = $this->_('Hot File');
 		$f->description = $this->_('Path to the Vite HMR "hot" file (relative to Root Path, or an absolute path). Leave this field blank to completely disable Hot Module Replacement detection.');
-		$f->attr('value', $data['hotFile'] ?? $defaults['hotFile']);
+		$f->attr('value', $normalized['hotFile'] ?? '');
 		$f->notes = $this->_('For example: hot or /var/www/html/public/hot. Leave empty to disable HMR.');
 		$wrapper->add($f);
 
@@ -232,7 +270,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 		$f->attr('name', 'manifest');
 		$f->label = $this->_('Manifest Filename');
 		$f->description = $this->_('Name of the Vite manifest file inside the Build Directory. Also checked under .vite/ subdirectory as a fallback.');
-		$f->attr('value', $data['manifest'] ?? $defaults['manifest']);
+		$f->attr('value', $normalized['manifest']);
 		$f->required = true;
 		$wrapper->add($f);
 
@@ -245,7 +283,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 			'enabled' => $this->_('Enabled — use custom manifest key below'),
 			'disabled' => $this->_('Disabled'),
 		]);
-		$currentIntegrity = $data['integrity'] ?? $defaults['integrity'];
+		$currentIntegrity = $normalized['integrity'];
 		$integrity->attr('value', $currentIntegrity === false ? 'disabled' : 'enabled');
 		$wrapper->add($integrity);
 
@@ -263,59 +301,9 @@ class Vite extends WireData implements Module, ConfigurableModule
 		$f->attr('name', 'nonce');
 		$f->label = $this->_('CSP Nonce (optional)');
 		$f->description = $this->_('Fixed Content-Security-Policy nonce value to attach to every generated tag. Leave blank to disable or use vite()->useNonce() in templates.');
-		$f->attr('value', $data['nonce'] ?? '');
+		$f->attr('value', $normalized['nonce'] ?? '');
 		$wrapper->add($f);
 
 		return $wrapper;
-	}
-
-	/**
-	 * Normalize and sanitize saved module configuration data.
-	 *
-	 * @param array<string, mixed> $data
-	 * @return array<string, mixed>
-	 */
-	public function ___getConfig(array $data): array
-	{
-		$data = parent::___getConfig($data);
-		$defaults = $this->getDefaultConfig();
-
-		if (array_key_exists('integrityToggle', $data)) {
-			if ($data['integrityToggle'] === 'disabled') {
-				$data['integrity'] = false;
-			} elseif (!isset($data['integrity']) || !is_string($data['integrity']) || trim($data['integrity']) === '') {
-				$data['integrity'] = $defaults['integrity'];
-			}
-			unset($data['integrityToggle']);
-		}
-
-		$requiredStrings = [
-			'rootPath' => $defaults['rootPath'],
-			'rootUrl' => $defaults['rootUrl'],
-			'buildDirectory' => $defaults['buildDirectory'],
-			'manifest' => $defaults['manifest'],
-		];
-
-		foreach ($requiredStrings as $key => $default) {
-			if (!isset($data[$key]) || !is_string($data[$key]) || trim($data[$key]) === '') {
-				$data[$key] = $default;
-			} else {
-				$data[$key] = trim($data[$key]);
-			}
-		}
-
-		if (array_key_exists('hotFile', $data)) {
-			$data['hotFile'] = is_string($data['hotFile']) && trim($data['hotFile']) !== ''
-				? trim($data['hotFile'])
-				: null;
-		}
-
-		if (array_key_exists('nonce', $data)) {
-			$data['nonce'] = is_string($data['nonce']) && trim($data['nonce']) !== ''
-				? trim($data['nonce'])
-				: null;
-		}
-
-		return $data;
 	}
 }
