@@ -134,7 +134,7 @@ class Vite extends Wire implements Stringable
 	 *
 	 * @param array<string, mixed> $options
 	 */
-	protected function applyConfigMap(array $options, bool $respectFluentOverrides = false): void
+	protected function applyConfigMap(array $options): void
 	{
 		$optionKeys = [
 			'rootPath',
@@ -147,11 +147,7 @@ class Vite extends Wire implements Stringable
 		];
 
 		foreach ($optionKeys as $settingKey) {
-			if (!array_key_exists($settingKey, $options)) {
-				continue;
-			}
-
-			if ($respectFluentOverrides && isset($this->overriddenKeys[$settingKey])) {
+			if (!array_key_exists($settingKey, $options) || isset($this->overriddenKeys[$settingKey])) {
 				continue;
 			}
 
@@ -164,10 +160,7 @@ class Vite extends Wire implements Stringable
 				'integrity' => $value === false
 					? false
 					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->integrity),
-				'nonce' => $value === null
-					? null
-					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->nonce),
-				'hotFile' => is_string($value) && trim($value) !== ''
+				'hotFile', 'nonce' => is_string($value) && trim($value) !== ''
 					? trim($value)
 					: null,
 				default => is_string($value) && trim($value) !== ''
@@ -192,7 +185,7 @@ class Vite extends Wire implements Stringable
 				'integrity' => $this->module->integrity,
 				'manifest' => $this->module->manifest,
 				'nonce' => $this->module->nonce,
-			], true);
+			]);
 		}
 
 		$global = setting('vite');
@@ -209,7 +202,7 @@ class Vite extends Wire implements Stringable
 			return;
 		}
 
-		$this->applyConfigMap($global, true);
+		$this->applyConfigMap($global);
 	}
 
 	/**
