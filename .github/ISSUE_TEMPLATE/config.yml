@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: ProcessWire Support Forum
+    url: https://processwire.com/talk/
+    about: Ask questions and discuss usage with the ProcessWire community.
   - name: Support Question
     url: https://totoglu.com/support
-    about: We use GitHub issues only to discuss about our app and module bugs and new features.
+    about: We use GitHub issues only to track Vite module bugs and feature requests.

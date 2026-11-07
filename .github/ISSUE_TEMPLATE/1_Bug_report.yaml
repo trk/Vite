@@ -1,13 +1,45 @@
 name: 🐛 Bug Report
-description: ⚠️ NEVER report security issues, directly pm to me
-labels: Bug
+description: ⚠️ NEVER report security issues publicly, please contact us directly
+labels: ["bug"]
 
 body:
   - type: input
     id: affected-versions
     attributes:
-      label: Version(s) affected
-      placeholder: x.y.z
+      label: Vite module version(s) affected
+      placeholder: 0.0.5
+    validations:
+      required: true
+  - type: input
+    id: processwire-version
+    attributes:
+      label: ProcessWire version
+      placeholder: 3.0.275
+    validations:
+      required: true
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      placeholder: 8.5.12
+    validations:
+      required: true
+  - type: input
+    id: vite-version
+    attributes:
+      label: Vite.js / Node.js version
+      placeholder: e.g. Vite 6.x, Node 22.x
+    validations:
+      required: false
+  - type: dropdown
+    id: build-mode
+    attributes:
+      label: Environment / Mode
+      options:
+        - Development (HMR / hot file)
+        - Production (manifest.json build)
+        - Both
+      default: 0
     validations:
       required: true
   - type: textarea
@@ -22,9 +54,9 @@ body:
     attributes:
       label: How to reproduce
       description: |
-        ⚠️  This is the most important part of the report ⚠️
+        ⚠️ This is the most important part of the report ⚠️
         Without a way to easily reproduce your issue, there is little chance we will be able to help you and work on a fix.
-        Please, take the time to show us some code and/or config that is needed for others to reproduce the problem easily.
+        Please take the time to share the steps, code, or configuration needed to reproduce the problem.
     validations:
       required: true
   - type: textarea
@@ -32,7 +64,7 @@ body:
     attributes:
       label: Possible Solution
       description: |
-        Optional: only if you have suggestions on a fix/reason for the bug
+        Optional: only if you have suggestions on a fix/reason for the bug.
         Don't hesitate to create a pull request with your solution, it helps get faster feedback.
   - type: textarea
     id: additional-context
