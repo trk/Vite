@@ -100,16 +100,12 @@ class Vite extends WireData implements Module, ConfigurableModule
 			}
 		}
 
-		if (array_key_exists('hotFile', $data)) {
-			$normalized['hotFile'] = is_string($data['hotFile']) && trim($data['hotFile']) !== ''
-				? trim($data['hotFile'])
-				: null;
-		}
-
-		if (array_key_exists('nonce', $data)) {
-			$normalized['nonce'] = is_string($data['nonce']) && trim($data['nonce']) !== ''
-				? trim($data['nonce'])
-				: null;
+		foreach (['hotFile', 'nonce'] as $key) {
+			if (array_key_exists($key, $data)) {
+				$normalized[$key] = is_string($data[$key]) && trim($data[$key]) !== ''
+					? trim($data[$key])
+					: null;
+			}
 		}
 
 		if (($data['integrityToggle'] ?? null) === 'disabled' || ($data['integrity'] ?? null) === false) {

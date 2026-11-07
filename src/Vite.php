@@ -511,13 +511,13 @@ class Vite extends Wire implements Stringable
 		if ($this->isStylePath($url)) {
 			return $this->makeStyleTag(
 				$url,
-				$this->resolveStyleTagAttributes($src, $url, $chunk, $manifest)
+				$this->resolveTagAttributes('styleTagAttributes', $src, $url, $chunk, $manifest)
 			);
 		}
 
 		return $this->makeScriptTag(
 			$url,
-			$this->resolveScriptTagAttributes($src, $url, $chunk, $manifest)
+			$this->resolveTagAttributes('scriptTagAttributes', $src, $url, $chunk, $manifest)
 		);
 	}
 
@@ -606,30 +606,6 @@ class Vite extends Wire implements Stringable
 	}
 
 	/**
-	 * Resolve the attributes for the chunk's generated script tag.
-	 *
-	 * @param array<string, mixed> $chunk
-	 * @param array<string, mixed> $manifest
-	 * @return array<string, mixed>
-	 */
-	protected function resolveScriptTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
-	{
-		return $this->resolveTagAttributes('scriptTagAttributes', $src, $url, $chunk, $manifest);
-	}
-
-	/**
-	 * Resolve the attributes for the chunk's generated stylesheet tag.
-	 *
-	 * @param array<string, mixed> $chunk
-	 * @param array<string, mixed> $manifest
-	 * @return array<string, mixed>
-	 */
-	protected function resolveStyleTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
-	{
-		return $this->resolveTagAttributes('styleTagAttributes', $src, $url, $chunk, $manifest);
-	}
-
-	/**
 	 * Resolve the attributes for the chunk's generated preload tag.
 	 *
 	 * @param array<string, mixed> $chunk
@@ -643,12 +619,12 @@ class Vite extends Wire implements Stringable
 			'as' => 'style',
 			'href' => $url,
 			'nonce' => $this->nonce(),
-			'crossorigin' => $this->resolveStyleTagAttributes($src, $url, $chunk, $manifest)['crossorigin'] ?? false,
+			'crossorigin' => $this->resolveTagAttributes('styleTagAttributes', $src, $url, $chunk, $manifest)['crossorigin'] ?? false,
 		] : [
 			'rel' => 'modulepreload',
 			'href' => $url,
 			'nonce' => $this->nonce(),
-			'crossorigin' => $this->resolveScriptTagAttributes($src, $url, $chunk, $manifest)['crossorigin'] ?? false,
+			'crossorigin' => $this->resolveTagAttributes('scriptTagAttributes', $src, $url, $chunk, $manifest)['crossorigin'] ?? false,
 		];
 
 		return array_merge(
@@ -1049,9 +1025,14 @@ class Vite extends Wire implements Stringable
 	{
 		$this->applyGlobalSettings();
 
+		$path = (string) $path;
+		if (preg_match('/^https?:\/\//i', $path) === 1) {
+			return $path;
+		}
+
 		$baseUrl = rtrim($this->rootUrl, '/') . '/';
 
-		return $baseUrl . ltrim((string) $path, '/');
+		return $baseUrl . ltrim($path, '/');
 	}
 
 	/**
