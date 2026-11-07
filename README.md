@@ -36,7 +36,7 @@ The stubs give you a working starting point with:
 
 - a `package.json` with pinned dev-dependency versions
 - a `vite.config.js` already configured for a typical ProcessWire project
-  layout (entry points inside `templates/assets/`)
+  layout (entry points inside `assets/` relative to `site/templates/`)
 - a `.env` file for `APP_URL` and automatic Valet / Herd TLS detection
 - example `app.css` and `app.js` entry files
 
@@ -103,9 +103,8 @@ website at <https://laravel.com/docs/vite>. The ProcessWire adapter mirrors its
 conventions and API so examples from the Laravel docs can be reused almost
 verbatim.
 
-If you start from a blank template folder, first initialize npm inside the
-root of your ProcessWire project (the same folder where your project's
-`composer.json` lives):
+If you start from a blank template folder, first initialize npm inside your
+`site/templates/` directory:
 
 ```bash
 npm init -y
@@ -130,18 +129,22 @@ Next, add the standard `dev` and `build` scripts to your `package.json`:
 
 Finally, create a `vite.config.js` that points Vite to your ProcessWire entry
 points. For a typical project where source files live inside
-`templates/assets/` the starter config looks like this:
+`site/templates/assets/` the starter config looks like this:
 
 ```js
 import { defineConfig } from "vite";
 import laravel from "laravel-vite-plugin";
 
 export default defineConfig({
+    root: import.meta.dirname,
     plugins: [
         laravel({
+            publicDirectory: "./",
+            buildDirectory: "build",
+            hotFile: "hot",
             input: [
-                "templates/assets/css/app.css",
-                "templates/assets/js/app.js",
+                "assets/css/app.css",
+                "assets/js/app.js",
             ],
             refresh: true,
         }),
@@ -187,17 +190,21 @@ import { defineConfig } from "vite";
 import laravel from "laravel-vite-plugin";
 
 export default defineConfig({
+    root: import.meta.dirname,
     plugins: [
         laravel({
+            publicDirectory: "./",
+            buildDirectory: "build",
+            hotFile: "hot",
             input: [
-                "templates/assets/css/app.css",
-                "templates/assets/js/app.js",
+                "assets/css/app.css",
+                "assets/js/app.js",
             ],
             refresh: [
-                "templates/**/*.php",
-                "templates/**/*.latte",
-                "templates/**/*.twig",
-                "site/classes/**/*.php",
+                "**/*.php",
+                "**/*.latte",
+                "**/*.twig",
+                "../classes/**/*.php",
             ],
         }),
     ],
@@ -219,8 +226,8 @@ at the top of any ProcessWire template:
 <?php
 // Inside any site/templates/*.php file:
 echo vite([
-    "templates/assets/css/app.css",
-    "templates/assets/js/app.js",
+    "assets/css/app.css",
+    "assets/js/app.js",
 ]);
 ```
 
@@ -247,8 +254,8 @@ A full HTML template skeleton therefore looks like the following:
     <title><?php echo $page->title; ?></title>
 
     <?php echo vite([
-        "templates/assets/css/app.css",
-        "templates/assets/js/app.js",
+        "assets/css/app.css",
+        "assets/js/app.js",
     ]); ?>
 </head>
 <body>
@@ -273,12 +280,12 @@ over configuration approach.
 <?php
 echo vite([
     // Always loaded:
-    "templates/assets/css/app.css",
-    "templates/assets/js/app.js",
+    "assets/css/app.css",
+    "assets/js/app.js",
 
     // Loaded only when a matching file exists on disk:
-    "@templates/assets/css/templates/{$page->template->name}.css",
-    "@templates/assets/js/templates/{$page->template->name}.js",
+    "@assets/css/templates/{$page->template->name}.css",
+    "@assets/js/templates/{$page->template->name}.js",
 ]);
 ```
 
@@ -294,15 +301,19 @@ template with their own optional CSS/JS looks like this:
 
 ```js
 export default defineConfig({
+    root: import.meta.dirname,
     plugins: [
         laravel({
+            publicDirectory: "./",
+            buildDirectory: "build",
+            hotFile: "hot",
             input: [
-                "templates/assets/css/app.css",
-                "templates/assets/js/app.js",
-                "templates/assets/css/templates/home.css",
-                "templates/assets/js/templates/home.js",
-                "templates/assets/css/templates/basic-page.css",
-                "templates/assets/js/templates/basic-page.js",
+                "assets/css/app.css",
+                "assets/js/app.js",
+                "assets/css/templates/home.css",
+                "assets/js/templates/home.js",
+                "assets/css/templates/basic-page.css",
+                "assets/js/templates/basic-page.js",
             ],
         }),
     ],
@@ -323,14 +334,14 @@ call in your markup:
 
 ```php
 <?php echo vite()->reactRefresh(); ?>
-<?php echo vite("templates/assets/js/app.jsx"); ?>
+<?php echo vite("assets/js/app.jsx"); ?>
 ```
 
 Or, using the fluent chain form with `withReactRefresh()` (equivalent and shorter):
 
 ```php
 <?php echo vite()->withReactRefresh()->withEntries([
-    "templates/assets/js/app.jsx",
+    "assets/js/app.jsx",
 ]); ?>
 ```
 
@@ -353,12 +364,12 @@ ProcessWire templates**, Vite needs to be told to "see" those static files at
 build time. The idiomatic way is to use `import.meta.glob` inside a JS entry
 point.
 
-The following example makes every file under `templates/assets/images/` and
-`templates/assets/fonts/` known to Vite so it gets versioned and appears in
+The following example makes every file under `assets/images/` and
+`assets/fonts/` known to Vite so it gets versioned and appears in
 the production manifest:
 
 ```js
-// templates/assets/js/app.js
+// assets/js/app.js
 import.meta.glob([
     "../images/**",
     "../fonts/**",
@@ -371,7 +382,7 @@ any static asset from within your ProcessWire templates by calling the fluent
 
 ```php
 <img
-    src="<?php echo vite()->asset("templates/assets/images/logo.png"); ?>"
+    src="<?php echo vite()->asset("assets/images/logo.png"); ?>"
     alt="Company Logo"
 >
 ```
@@ -420,7 +431,7 @@ setting("vite.scriptTagAttributes", function (
     array  $manifest
 ): array {
     return [
-        "data-turbo-track" => $src === "templates/assets/js/app.js"
+        "data-turbo-track" => $src === "assets/js/app.js"
             ? "reload"
             : false,
     ];
@@ -499,7 +510,7 @@ echo vite()
     ->useHotFile(wire("config")->paths->root . "vite.hot")
     ->useBuildDirectory("bundle")
     ->useManifest("assets.json")
-    ->withEntries(["templates/assets/js/app.js"]);
+    ->withEntries(["assets/js/app.js"]);
 ```
 
 The corresponding options inside `vite.config.js` must match:
@@ -509,13 +520,15 @@ import { defineConfig } from "vite";
 import laravel from "laravel-vite-plugin";
 
 export default defineConfig({
+    root: import.meta.dirname,
     plugins: [
         laravel({
+            publicDirectory: "./",
             hotFile:        "/var/www/vite.hot",
             buildDirectory: "bundle",
             input: [
-                "templates/assets/css/app.css",
-                "templates/assets/js/app.js",
+                "assets/css/app.css",
+                "assets/js/app.js",
             ],
         }),
     ],
