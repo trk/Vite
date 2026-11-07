@@ -394,30 +394,11 @@ class Vite extends Wire implements Stringable
 	}
 
 	/**
-	 * Check if a source file exists under rootPath, ProcessWire root, or templates directory.
+	 * Check if a source file exists under rootPath.
 	 */
 	protected function exists(string $file): bool
 	{
-		$config = $this->wire()->config;
-		$candidatePaths = [$this->rootPath];
-
-		if (is_object($config) && isset($config->paths)) {
-			$candidatePaths[] = (string) $config->paths->root;
-			$candidatePaths[] = (string) $config->paths->templates;
-		}
-
-		$validPaths = array_unique(array_filter(
-			$candidatePaths,
-			static fn(string $path): bool => $path !== ''
-		));
-
-		foreach ($validPaths as $basePath) {
-			if (file_exists($this->path($file, $basePath))) {
-				return true;
-			}
-		}
-
-		return false;
+		return is_file($this->path($file));
 	}
 
 	/**
@@ -915,6 +896,28 @@ class Vite extends Wire implements Stringable
 	}
 
 	/**
+	 * Set the filesystem base path used to resolve Vite assets.
+	 */
+	public function useRootPath(string $path): static
+	{
+		$this->rootPath = $path;
+		$this->overriddenKeys['rootPath'] = true;
+
+		return $this;
+	}
+
+	/**
+	 * Set the public URL base path used to generate Vite asset URLs.
+	 */
+	public function useRootUrl(string $url): static
+	{
+		$this->rootUrl = $url;
+		$this->overriddenKeys['rootUrl'] = true;
+
+		return $this;
+	}
+
+	/**
 	 * Use the given array or callback to resolve attributes for script tags.
 	 *
 	 * @param array<string, mixed>|callable $attributes
@@ -1001,24 +1004,24 @@ class Vite extends Wire implements Stringable
 	{
 		$this->applyGlobalSettings();
 
-		$path = (string) $path;
+		$path = str_replace('\\', '/', (string) $path);
 		if (preg_match('/^https?:\/\//i', $path) === 1) {
 			return $path;
 		}
 
-		$baseUrl = rtrim($this->rootUrl, '/') . '/';
+		$baseUrl = rtrim(str_replace('\\', '/', $this->rootUrl), '/') . '/';
 
 		return $baseUrl . ltrim($path, '/');
 	}
 
 	/**
-	 * Build a filesystem path relative to rootPath (or a provided base path).
+	 * Build a filesystem path relative to rootPath.
 	 */
-	protected function path(?string $file = null, ?string $path = null): string
+	protected function path(?string $file = null): string
 	{
 		$this->applyGlobalSettings();
 
-		$basePath = rtrim($path ?? $this->rootPath, '/\\') . '/';
+		$basePath = rtrim($this->rootPath, '/\\') . '/';
 
 		return $basePath . ltrim((string) $file, '/\\');
 	}

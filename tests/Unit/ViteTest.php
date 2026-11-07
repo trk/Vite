@@ -45,7 +45,10 @@ it('normalizes rootPath and rootUrl trailing slashes and handles null safely', f
 
 	expect($instance->url(null))->toBe('https://cdn.example.com/')
 		->and($instance->url('build/assets/app.js'))->toBe('https://cdn.example.com/build/assets/app.js')
-		->and($instance->url('/build/assets/app.js'))->toBe('https://cdn.example.com/build/assets/app.js');
+		->and($instance->url('/build/assets/app.js'))->toBe('https://cdn.example.com/build/assets/app.js')
+		->and($instance->url('build\\assets\\app.js'))->toBe('https://cdn.example.com/build/assets/app.js')
+		->and($instance->useRootPath('/custom/root')->useRootUrl('https://custom.example.com\\')->url('assets/app.js'))
+		->toBe('https://custom.example.com/assets/app.js');
 });
 
 it('supports both relative and absolute hotFile paths and renders HMR tags', function (): void {
