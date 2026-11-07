@@ -119,13 +119,14 @@ class Vite extends WireData implements Module, ConfigurableModule
 	}
 
 	/**
-	 * Copy starter stub files into the active site directory without overwriting existing files.
+	 * Copy starter stub files into the active templates directory without overwriting existing files.
 	 */
 	protected function copyStubFiles(): void
 	{
-		$stubsDir = __DIR__ . '/stubs';
-		$siteDir = rtrim((string) $this->wire()->config->paths->site, '/\\');
+		$config = $this->wire()->config;
 		$files = $this->wire()->files;
+		$stubsDir = __DIR__ . '/stubs/templates';
+		$templatesDir = rtrim((string) $config->paths->templates, '/\\');
 
 		if (!is_dir($stubsDir) || !is_readable($stubsDir)) {
 			$this->error(sprintf($this->_('Stubs directory not found or unreadable: %s'), $stubsDir));
@@ -143,7 +144,7 @@ class Vite extends WireData implements Module, ConfigurableModule
 		foreach ($iterator as $fileInfo) {
 			$sourcePath = $fileInfo->getPathname();
 			$relPath = str_replace('\\', '/', substr($sourcePath, $prefixLength));
-			$destPath = $siteDir . '/' . ltrim($relPath, '/');
+			$destPath = $templatesDir . '/' . ltrim($relPath, '/');
 
 			if ($fileInfo->isDir()) {
 				if (!is_dir($destPath)) {
@@ -197,52 +198,52 @@ class Vite extends WireData implements Module, ConfigurableModule
 		/** @var InputfieldWrapper $wrapper */
 		$wrapper = $modules->get('InputfieldWrapper');
 
-		/** @var InputfieldText $f */
-		$f = $modules->get('InputfieldText');
-		$f->attr('name', 'rootPath');
-		$f->label = $this->_('Root Path');
-		$f->description = $this->_('Filesystem base path used to resolve Vite assets and manifest/hot files. Defaults to the ProcessWire templates directory.');
-		$f->attr('value', $normalized['rootPath']);
-		$f->notes = $this->_('Example: /var/www/html/site/templates/');
-		$f->required = true;
-		$wrapper->add($f);
+		/** @var InputfieldText $field */
+		$field = $modules->get('InputfieldText');
+		$field->attr('name', 'rootPath');
+		$field->label = $this->_('Root Path');
+		$field->description = $this->_('Filesystem base path used to resolve Vite assets and manifest/hot files. Defaults to the ProcessWire templates directory.');
+		$field->attr('value', $normalized['rootPath']);
+		$field->notes = $this->_('Example: /var/www/html/site/templates/');
+		$field->required = true;
+		$wrapper->add($field);
 
-		/** @var InputfieldText $f */
-		$f = $modules->get('InputfieldText');
-		$f->attr('name', 'rootUrl');
-		$f->label = $this->_('Root URL');
-		$f->description = $this->_('URL base path used to generate asset links. Defaults to the ProcessWire templates URL.');
-		$f->attr('value', $normalized['rootUrl']);
-		$f->notes = $this->_('Example: /site/templates/');
-		$f->required = true;
-		$wrapper->add($f);
+		/** @var InputfieldText $field */
+		$field = $modules->get('InputfieldText');
+		$field->attr('name', 'rootUrl');
+		$field->label = $this->_('Root URL');
+		$field->description = $this->_('URL base path used to generate asset links. Defaults to the ProcessWire templates URL.');
+		$field->attr('value', $normalized['rootUrl']);
+		$field->notes = $this->_('Example: /site/templates/');
+		$field->required = true;
+		$wrapper->add($field);
 
-		/** @var InputfieldText $f */
-		$f = $modules->get('InputfieldText');
-		$f->attr('name', 'buildDirectory');
-		$f->label = $this->_('Build Directory');
-		$f->description = $this->_('Name of the build directory (relative to Root Path/URL) where Vite outputs production assets and the manifest.json file.');
-		$f->attr('value', $normalized['buildDirectory']);
-		$f->required = true;
-		$wrapper->add($f);
+		/** @var InputfieldText $field */
+		$field = $modules->get('InputfieldText');
+		$field->attr('name', 'buildDirectory');
+		$field->label = $this->_('Build Directory');
+		$field->description = $this->_('Name of the build directory (relative to Root Path/URL) where Vite outputs production assets and the manifest.json file.');
+		$field->attr('value', $normalized['buildDirectory']);
+		$field->required = true;
+		$wrapper->add($field);
 
-		/** @var InputfieldText $f */
-		$f = $modules->get('InputfieldText');
-		$f->attr('name', 'hotFile');
-		$f->label = $this->_('Hot File');
-		$f->description = $this->_('Path to the Vite HMR "hot" file (relative to Root Path, or an absolute path). Leave this field blank to completely disable Hot Module Replacement detection.');
-		$f->attr('value', $normalized['hotFile'] ?? '');
-		$f->notes = $this->_('For example: hot or /var/www/html/public/hot. Leave empty to disable HMR.');
-		$wrapper->add($f);
+		/** @var InputfieldText $field */
+		$field = $modules->get('InputfieldText');
+		$field->attr('name', 'hotFile');
+		$field->label = $this->_('Hot File');
+		$field->description = $this->_('Path to the Vite HMR "hot" file (relative to Root Path, or an absolute path). Leave this field blank to completely disable Hot Module Replacement detection.');
+		$field->attr('value', $normalized['hotFile'] ?? '');
+		$field->notes = $this->_('For example: hot or /var/www/html/public/hot. Leave empty to disable HMR.');
+		$wrapper->add($field);
 
-		/** @var InputfieldText $f */
-		$f = $modules->get('InputfieldText');
-		$f->attr('name', 'manifest');
-		$f->label = $this->_('Manifest Filename');
-		$f->description = $this->_('Name of the Vite manifest file inside the Build Directory. Also checked under .vite/ subdirectory as a fallback.');
-		$f->attr('value', $normalized['manifest']);
-		$f->required = true;
-		$wrapper->add($f);
+		/** @var InputfieldText $field */
+		$field = $modules->get('InputfieldText');
+		$field->attr('name', 'manifest');
+		$field->label = $this->_('Manifest Filename');
+		$field->description = $this->_('Name of the Vite manifest file inside the Build Directory. Also checked under .vite/ subdirectory as a fallback.');
+		$field->attr('value', $normalized['manifest']);
+		$field->required = true;
+		$wrapper->add($field);
 
 		/** @var InputfieldRadios $integrity */
 		$integrity = $modules->get('InputfieldRadios');
@@ -257,22 +258,22 @@ class Vite extends WireData implements Module, ConfigurableModule
 		$integrity->attr('value', $currentIntegrity === false ? 'disabled' : 'enabled');
 		$wrapper->add($integrity);
 
-		/** @var InputfieldText $f */
-		$f = $modules->get('InputfieldText');
-		$f->attr('name', 'integrity');
-		$f->label = $this->_('Integrity Manifest Key');
-		$f->description = $this->_('Manifest key that holds the SRI hash. Standard Vite/Laravel builds use "integrity".');
-		$f->attr('value', is_string($currentIntegrity) ? $currentIntegrity : 'integrity');
-		$f->showIf('integrityToggle=enabled');
-		$wrapper->add($f);
+		/** @var InputfieldText $field */
+		$field = $modules->get('InputfieldText');
+		$field->attr('name', 'integrity');
+		$field->label = $this->_('Integrity Manifest Key');
+		$field->description = $this->_('Manifest key that holds the SRI hash. Standard Vite/Laravel builds use "integrity".');
+		$field->attr('value', is_string($currentIntegrity) ? $currentIntegrity : 'integrity');
+		$field->showIf('integrityToggle=enabled');
+		$wrapper->add($field);
 
-		/** @var InputfieldText $f */
-		$f = $modules->get('InputfieldText');
-		$f->attr('name', 'nonce');
-		$f->label = $this->_('CSP Nonce (optional)');
-		$f->description = $this->_('Fixed Content-Security-Policy nonce value to attach to every generated tag. Leave blank to disable or use vite()->useNonce() in templates.');
-		$f->attr('value', $normalized['nonce'] ?? '');
-		$wrapper->add($f);
+		/** @var InputfieldText $field */
+		$field = $modules->get('InputfieldText');
+		$field->attr('name', 'nonce');
+		$field->label = $this->_('CSP Nonce (optional)');
+		$field->description = $this->_('Fixed Content-Security-Policy nonce value to attach to every generated tag. Leave blank to disable or use vite()->useNonce() in templates.');
+		$field->attr('value', $normalized['nonce'] ?? '');
+		$wrapper->add($field);
 
 		return $wrapper;
 	}

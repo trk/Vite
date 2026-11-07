@@ -323,15 +323,9 @@ class Vite extends Wire implements Stringable
 			$this->resolveCss($chunk, $buildDirectory, $manifest, $assets, $preloads);
 		}
 
-		uksort(
-			$preloads,
-			fn(string $a, string $b): int => $this->isStylePath($b) <=> $this->isStylePath($a)
-		);
-
-		uksort(
-			$assets,
-			fn(string $a, string $b): int => $this->isStylePath($b) <=> $this->isStylePath($a)
-		);
+		$sortByStyle = fn(string $a, string $b): int => $this->isStylePath($b) <=> $this->isStylePath($a);
+		uksort($preloads, $sortByStyle);
+		uksort($assets, $sortByStyle);
 
 		return $prefix . implode('', $preloads) . implode('', $assets);
 	}
@@ -841,14 +835,22 @@ class Vite extends Wire implements Stringable
 	}
 
 	/**
+	 * Assign an explicit fluent configuration override on this instance.
+	 */
+	protected function setOverride(string $key, mixed $value): static
+	{
+		$this->{$key} = $value;
+		$this->overriddenKeys[$key] = true;
+
+		return $this;
+	}
+
+	/**
 	 * Generate or set a Content Security Policy nonce to apply to all generated tags.
 	 */
 	public function useNonce(?string $nonce = null): static
 	{
-		$this->nonce = $nonce ?? bin2hex(random_bytes(20));
-		$this->overriddenKeys['nonce'] = true;
-
-		return $this;
+		return $this->setOverride('nonce', $nonce ?? bin2hex(random_bytes(20)));
 	}
 
 	/**
@@ -856,10 +858,7 @@ class Vite extends Wire implements Stringable
 	 */
 	public function useManifest(string $name): static
 	{
-		$this->manifest = $name;
-		$this->overriddenKeys['manifest'] = true;
-
-		return $this;
+		return $this->setOverride('manifest', $name);
 	}
 
 	/**
@@ -867,10 +866,7 @@ class Vite extends Wire implements Stringable
 	 */
 	public function useIntegrity(string|false $key): static
 	{
-		$this->integrity = $key;
-		$this->overriddenKeys['integrity'] = true;
-
-		return $this;
+		return $this->setOverride('integrity', $key);
 	}
 
 	/**
@@ -878,10 +874,7 @@ class Vite extends Wire implements Stringable
 	 */
 	public function useHotFile(string $path): static
 	{
-		$this->hotFile = $path;
-		$this->overriddenKeys['hotFile'] = true;
-
-		return $this;
+		return $this->setOverride('hotFile', $path);
 	}
 
 	/**
@@ -889,10 +882,7 @@ class Vite extends Wire implements Stringable
 	 */
 	public function useBuildDirectory(string $path): static
 	{
-		$this->buildDirectory = $path;
-		$this->overriddenKeys['buildDirectory'] = true;
-
-		return $this;
+		return $this->setOverride('buildDirectory', $path);
 	}
 
 	/**
@@ -900,10 +890,7 @@ class Vite extends Wire implements Stringable
 	 */
 	public function useRootPath(string $path): static
 	{
-		$this->rootPath = $path;
-		$this->overriddenKeys['rootPath'] = true;
-
-		return $this;
+		return $this->setOverride('rootPath', $path);
 	}
 
 	/**
@@ -911,10 +898,7 @@ class Vite extends Wire implements Stringable
 	 */
 	public function useRootUrl(string $url): static
 	{
-		$this->rootUrl = $url;
-		$this->overriddenKeys['rootUrl'] = true;
-
-		return $this;
+		return $this->setOverride('rootUrl', $url);
 	}
 
 	/**
