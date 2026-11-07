@@ -10,7 +10,7 @@ namespace ProcessWire;
  * @package   Totoglu Vite
  * @author    Iskender TOTOGLU <iskender@totoglu.com>
  * @link      https://totoglu.com
- * @copyright Iskender TOTOGLU
+ * @copyright 2026 Iskender TOTOGLU
  * @license   https://opensource.org/licenses/MIT
  *
  * @property string $rootPath Filesystem base path used to resolve Vite assets (defaults to templates path).
@@ -20,274 +20,302 @@ namespace ProcessWire;
  * @property string|false $integrity The manifest key used for SRI integrity hashes, or false to disable.
  * @property string $manifest The name of the manifest file inside the build directory.
  * @property string|null $nonce Content Security Policy nonce value applied to generated tags.
+ *
+ * @method void install()
+ * @method array<string, mixed> installConfig()
+ * @method array<string, mixed> getConfig(array $data)
  */
 class Vite extends WireData implements Module, ConfigurableModule
 {
-    public static function getModuleInfo()
-    {
-        return [
-            'title' => 'Vite',
-            'summary' => __("Integrates Vite.js with ProcessWire for a modern frontend development workflow. This module simplifies asset bundling by automatically generating the correct script and style tags for your Vite-powered assets. It supports Hot Module Replacement (HMR) for instant feedback during development and reads Vite's manifest file in production for versioned/hashed assets, enabling efficient cache-busting.", __FILE__),
-            'version' => 5,
-            'icon' => 'code',
-            'singular' => true,
-            'autoload' => true,
-            'requires' => [
-                'ProcessWire>=3.0.0'
-            ]
-        ];
-    }
+	/**
+	 * Return module metadata for ProcessWire.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function getModuleInfo(): array
+	{
+		return [
+			'title' => 'Vite',
+			'summary' => __('Integrates Vite.js with ProcessWire for a modern frontend development workflow. This module simplifies asset bundling by automatically generating the correct script and style tags for your Vite-powered assets. It supports Hot Module Replacement (HMR) for instant feedback during development and reads Vite\'s manifest file in production for versioned/hashed assets, enabling efficient cache-busting.', __FILE__),
+			'version' => 5,
+			'icon' => 'code',
+			'singular' => true,
+			'autoload' => true,
+			'requires' => [
+				'ProcessWire>=3.0.165',
+				'PHP>=8.3.0',
+			],
+		];
+	}
 
-    /**
-     * @inheritDoc
-     */
-    public function __construct()
-    {
-        $this->wire('classLoader')->addNamespace('Totoglu\Vite', __DIR__ . '/src');
+	public function __construct()
+	{
+		parent::__construct();
 
-        require_once __DIR__ . '/functions.php';
+		$this->wire()->classLoader->addNamespace('Totoglu\Vite', __DIR__ . '/src');
 
-        /** @var Config $config */
-        $config = $this->wire('config');
+		require_once __DIR__ . '/functions.php';
 
-        $this->set('rootPath', $config->paths->templates);
-        $this->set('rootUrl', $config->urls->templates);
-        $this->set('buildDirectory', 'build');
-        $this->set('hotFile', 'hot');
-        $this->set('integrity', 'integrity');
-        $this->set('manifest', 'manifest.json');
-        $this->set('nonce', null);
-    }
+		foreach ($this->getDefaultConfig() as $key => $value) {
+			$this->set($key, $value);
+		}
+	}
 
-    public function wired()
-    {
-        $this->wire('vite', $this);
-    }
+	public function wired(): void
+	{
+		$this->wire('vite', $this);
+	}
 
-    public function init() {}
+	/**
+	 * Default module configuration values.
+	 *
+	 * @return array{rootPath: string, rootUrl: string, buildDirectory: string, hotFile: string|null, integrity: string|false, manifest: string, nonce: string|null}
+	 */
+	public function getDefaultConfig(): array
+	{
+		$config = $this->wire()->config;
 
-    public function ready() {}
+		return [
+			'rootPath' => (string) $config->paths->templates,
+			'rootUrl' => (string) $config->urls->templates,
+			'buildDirectory' => 'build',
+			'hotFile' => 'hot',
+			'integrity' => 'integrity',
+			'manifest' => 'manifest.json',
+			'nonce' => null,
+		];
+	}
 
-    /**
-     * Recursively copy stub files to destination
-     */
-    protected function copyStubFilesRecursive(string $sourceDir, string $destDir, string $relativePath = ''): void
-    {
-        $sourceFullPath = rtrim($sourceDir, '/\\') . ($relativePath !== '' ? '/' . ltrim($relativePath, '/\\') : '');
+	/**
+	 * Recursively copy starter stub files to destination without overwriting existing files.
+	 */
+	protected function copyStubFilesRecursive(string $sourceDir, string $destDir, string $relativePath = ''): void
+	{
+		$files = $this->wire()->files;
+		$sourceFullPath = rtrim($sourceDir, '/\\') . ($relativePath !== '' ? '/' . ltrim($relativePath, '/\\') : '');
 
-        if (!is_dir($sourceFullPath) || !is_readable($sourceFullPath)) {
-            $this->error("Source directory is missing or unreadable: " . $sourceFullPath);
-            return;
-        }
+		if (!is_dir($sourceFullPath) || !is_readable($sourceFullPath)) {
+			$this->error(sprintf($this->_('Source directory is missing or unreadable: %s'), $sourceFullPath));
+			return;
+		}
 
-        $dir = new \DirectoryIterator($sourceFullPath);
+		$dir = new \DirectoryIterator($sourceFullPath);
 
-        foreach ($dir as $fileInfo) {
-            if ($fileInfo->isDot()) {
-                continue;
-            }
+		foreach ($dir as $fileInfo) {
+			if ($fileInfo->isDot()) {
+				continue;
+			}
 
-            $sourcePath = $fileInfo->getPathname();
-            $relPath = ($relativePath !== '' ? rtrim($relativePath, '/\\') . '/' : '') . $fileInfo->getFilename();
-            $destPath = rtrim($destDir, '/\\') . '/' . ltrim($relPath, '/\\');
+			$sourcePath = $fileInfo->getPathname();
+			$relPath = ($relativePath !== '' ? rtrim($relativePath, '/\\') . '/' : '') . $fileInfo->getFilename();
+			$destPath = rtrim($destDir, '/\\') . '/' . ltrim($relPath, '/\\');
 
-            if ($fileInfo->isDir()) {
-                if (!is_dir($destPath)) {
-                    $this->message("Creating directory: " . $relPath);
-                    if (!wireMkdir($destPath)) {
-                        $this->error("Failed to create directory: " . $destPath . " — check filesystem permissions.");
-                        continue;
-                    }
-                }
+			if ($fileInfo->isDir()) {
+				if (!is_dir($destPath)) {
+					$this->message(sprintf($this->_('Creating directory: %s'), $relPath));
+					if (!$files->mkdir($destPath, true)) {
+						$this->error(sprintf($this->_('Failed to create directory: %s — check filesystem permissions.'), $destPath));
+						continue;
+					}
+				}
 
-                $this->copyStubFilesRecursive($sourceDir, $destDir, $relPath);
-                continue;
-            }
+				$this->copyStubFilesRecursive($sourceDir, $destDir, $relPath);
+				continue;
+			}
 
-            if (file_exists($destPath)) {
-                $this->message("File already exists (skipping): " . $relPath);
-                continue;
-            }
+			if (file_exists($destPath)) {
+				$this->message(sprintf($this->_('File already exists (skipping): %s'), $relPath));
+				continue;
+			}
 
-            $parentDir = dirname($destPath);
-            if (!is_dir($parentDir) && !wireMkdir($parentDir)) {
-                $this->error("Failed to create parent directory: " . $parentDir);
-                continue;
-            }
+			$parentDir = dirname($destPath);
+			if (!is_dir($parentDir) && !$files->mkdir($parentDir, true)) {
+				$this->error(sprintf($this->_('Failed to create parent directory: %s'), $parentDir));
+				continue;
+			}
 
-            $this->message("Copying file: " . $relPath);
+			$this->message(sprintf($this->_('Copying file: %s'), $relPath));
 
-            if (!is_readable($sourcePath)) {
-                $this->error("Source file is not readable: " . $sourcePath);
-                continue;
-            }
+			if (!is_readable($sourcePath)) {
+				$this->error(sprintf($this->_('Source file is not readable: %s'), $sourcePath));
+				continue;
+			}
 
-            if (!@copy($sourcePath, $destPath)) {
-                $this->error("Failed to copy file from " . $sourcePath . " to " . $destPath . " — check filesystem permissions.");
-                continue;
-            }
-        }
-    }
+			if (!@copy($sourcePath, $destPath)) {
+				$this->error(sprintf($this->_('Failed to copy file from %1$s to %2$s — check filesystem permissions.'), $sourcePath, $destPath));
+				continue;
+			}
+		}
+	}
 
-    /**
-     * Copy stub files to site directory
-     */
-    protected function copyStubFiles(): void
-    {
-        $stubsDir = __DIR__ . '/stubs';
-        $siteDir = $this->wire('config')->paths->site;
+	/**
+	 * Copy starter stub files into the active site directory.
+	 */
+	protected function copyStubFiles(): void
+	{
+		$stubsDir = __DIR__ . '/stubs';
+		$siteDir = (string) $this->wire()->config->paths->site;
 
-        if (!is_dir($stubsDir)) {
-            $this->error("Stubs directory not found: $stubsDir");
-            return;
-        }
+		if (!is_dir($stubsDir)) {
+			$this->error(sprintf($this->_('Stubs directory not found: %s'), $stubsDir));
+			return;
+		}
 
-        $this->copyStubFilesRecursive($stubsDir, $siteDir);
-        $this->message("Vite stub files have been copied to site templates directory.");
-    }
+		$this->copyStubFilesRecursive($stubsDir, $siteDir);
+		$this->message($this->_('Vite stub files have been copied to site templates directory.'));
+	}
 
-    public function ___install()
-    {
-        $this->copyStubFiles();
-    }
+	public function ___install(): void
+	{
+		$this->copyStubFiles();
+	}
 
-    public function ___installConfig(): array
-    {
-        return [
-            'rootPath'       => $this->wire('config')->paths->templates,
-            'rootUrl'        => $this->wire('config')->urls->templates,
-            'buildDirectory' => 'build',
-            'hotFile'        => 'hot',
-            'integrity'      => 'integrity',
-            'manifest'       => 'manifest.json',
-            'nonce'          => null,
-        ];
-    }
+	/**
+	 * @return array<string, mixed>
+	 */
+	public function ___installConfig(): array
+	{
+		return $this->getDefaultConfig();
+	}
 
-    public function getModuleConfigInputfields(array $data): InputfieldWrapper
-    {
-        /** @var Modules $modules */
-        $modules = $this->wire('modules');
-        /** @var Config $config */
-        $config  = $this->wire('config');
-        /** @var InputfieldWrapper $wrapper */
-        $wrapper = $modules->get('InputfieldWrapper');
+	/**
+	 * @param array<string, mixed> $data
+	 */
+	public function getModuleConfigInputfields(array $data): InputfieldWrapper
+	{
+		$modules = $this->wire()->modules;
+		$defaults = $this->getDefaultConfig();
 
-        /** @var InputfieldText $f */
-        $f = $modules->get('InputfieldText');
-        $f->attr('name', 'rootPath');
-        $f->label = $this->_('Root Path');
-        $f->description = $this->_('Filesystem base path used to resolve Vite assets and manifest/hot files. Defaults to the ProcessWire templates directory.');
-        $f->attr('value', $data['rootPath'] ?? $config->paths->templates);
-        $f->notes = $this->_('Example: /var/www/html/site/templates/');
-        $f->required = true;
-        $wrapper->add($f);
+		/** @var InputfieldWrapper $wrapper */
+		$wrapper = $modules->get('InputfieldWrapper');
 
-        $f = $modules->get('InputfieldText');
-        $f->attr('name', 'rootUrl');
-        $f->label = $this->_('Root URL');
-        $f->description = $this->_('URL base path used to generate asset links. Defaults to the ProcessWire templates URL.');
-        $f->attr('value', $data['rootUrl'] ?? $config->urls->templates);
-        $f->notes = $this->_('Example: /site/templates/');
-        $f->required = true;
-        $wrapper->add($f);
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'rootPath');
+		$f->label = $this->_('Root Path');
+		$f->description = $this->_('Filesystem base path used to resolve Vite assets and manifest/hot files. Defaults to the ProcessWire templates directory.');
+		$f->attr('value', $data['rootPath'] ?? $defaults['rootPath']);
+		$f->notes = $this->_('Example: /var/www/html/site/templates/');
+		$f->required = true;
+		$wrapper->add($f);
 
-        $f = $modules->get('InputfieldText');
-        $f->attr('name', 'buildDirectory');
-        $f->label = $this->_('Build Directory');
-        $f->description = $this->_('Name of the build directory (relative to Root Path/URL) where Vite outputs production assets and the manifest.json file.');
-        $f->attr('value', $data['buildDirectory'] ?? 'build');
-        $f->required = true;
-        $wrapper->add($f);
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'rootUrl');
+		$f->label = $this->_('Root URL');
+		$f->description = $this->_('URL base path used to generate asset links. Defaults to the ProcessWire templates URL.');
+		$f->attr('value', $data['rootUrl'] ?? $defaults['rootUrl']);
+		$f->notes = $this->_('Example: /site/templates/');
+		$f->required = true;
+		$wrapper->add($f);
 
-        $f = $modules->get('InputfieldText');
-        $f->attr('name', 'hotFile');
-        $f->label = $this->_('Hot File');
-        $f->description = $this->_('Path to the Vite HMR "hot" file (relative to Root Path, or an absolute path). Leave this field blank to completely disable Hot Module Replacement detection.');
-        $f->attr('value', $data['hotFile'] ?? 'hot');
-        $f->notes = $this->_('For example: hot or /var/www/html/public/hot. Leave empty to disable HMR.');
-        $wrapper->add($f);
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'buildDirectory');
+		$f->label = $this->_('Build Directory');
+		$f->description = $this->_('Name of the build directory (relative to Root Path/URL) where Vite outputs production assets and the manifest.json file.');
+		$f->attr('value', $data['buildDirectory'] ?? $defaults['buildDirectory']);
+		$f->required = true;
+		$wrapper->add($f);
 
-        $f = $modules->get('InputfieldText');
-        $f->attr('name', 'manifest');
-        $f->label = $this->_('Manifest Filename');
-        $f->description = $this->_('Name of the Vite manifest file inside the Build Directory. Also checked under .vite/ subdirectory as a fallback.');
-        $f->attr('value', $data['manifest'] ?? 'manifest.json');
-        $f->required = true;
-        $wrapper->add($f);
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'hotFile');
+		$f->label = $this->_('Hot File');
+		$f->description = $this->_('Path to the Vite HMR "hot" file (relative to Root Path, or an absolute path). Leave this field blank to completely disable Hot Module Replacement detection.');
+		$f->attr('value', $data['hotFile'] ?? $defaults['hotFile']);
+		$f->notes = $this->_('For example: hot or /var/www/html/public/hot. Leave empty to disable HMR.');
+		$wrapper->add($f);
 
-        /** @var InputfieldRadios $integrity */
-        $integrity = $modules->get('InputfieldRadios');
-        $integrity->attr('name', 'integrityToggle');
-        $integrity->label = $this->_('Subresource Integrity (SRI)');
-        $integrity->description = $this->_('Read integrity hashes from the manifest and add them to generated script/style tags, or disable SRI entirely.');
-        $integrity->setOptions([
-            'enabled'  => $this->_('Enabled — use custom manifest key below'),
-            'disabled' => $this->_('Disabled'),
-        ]);
-        $currentIntegrity = $data['integrity'] ?? 'integrity';
-        $integrity->attr('value', $currentIntegrity === false ? 'disabled' : 'enabled');
-        $wrapper->add($integrity);
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'manifest');
+		$f->label = $this->_('Manifest Filename');
+		$f->description = $this->_('Name of the Vite manifest file inside the Build Directory. Also checked under .vite/ subdirectory as a fallback.');
+		$f->attr('value', $data['manifest'] ?? $defaults['manifest']);
+		$f->required = true;
+		$wrapper->add($f);
 
-        $f = $modules->get('InputfieldText');
-        $f->attr('name', 'integrity');
-        $f->label = $this->_('Integrity Manifest Key');
-        $f->description = $this->_('Manifest key that holds the SRI hash. Standard Vite/Laravel builds use "integrity".');
-        $f->attr('value', is_string($currentIntegrity) ? $currentIntegrity : 'integrity');
-        $f->showIf("integrityToggle=enabled");
-        $wrapper->add($f);
+		/** @var InputfieldRadios $integrity */
+		$integrity = $modules->get('InputfieldRadios');
+		$integrity->attr('name', 'integrityToggle');
+		$integrity->label = $this->_('Subresource Integrity (SRI)');
+		$integrity->description = $this->_('Read integrity hashes from the manifest and add them to generated script/style tags, or disable SRI entirely.');
+		$integrity->setOptions([
+			'enabled' => $this->_('Enabled — use custom manifest key below'),
+			'disabled' => $this->_('Disabled'),
+		]);
+		$currentIntegrity = $data['integrity'] ?? $defaults['integrity'];
+		$integrity->attr('value', $currentIntegrity === false ? 'disabled' : 'enabled');
+		$wrapper->add($integrity);
 
-        $f = $modules->get('InputfieldText');
-        $f->attr('name', 'nonce');
-        $f->label = $this->_('CSP Nonce (optional)');
-        $f->description = $this->_('Fixed Content-Security-Policy nonce value to attach to every generated tag. Leave blank to disable or use vite()->useNonce() in templates.');
-        $f->attr('value', $data['nonce'] ?? '');
-        $wrapper->add($f);
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'integrity');
+		$f->label = $this->_('Integrity Manifest Key');
+		$f->description = $this->_('Manifest key that holds the SRI hash. Standard Vite/Laravel builds use "integrity".');
+		$f->attr('value', is_string($currentIntegrity) ? $currentIntegrity : 'integrity');
+		$f->showIf('integrityToggle=enabled');
+		$wrapper->add($f);
 
-        return $wrapper;
-    }
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'nonce');
+		$f->label = $this->_('CSP Nonce (optional)');
+		$f->description = $this->_('Fixed Content-Security-Policy nonce value to attach to every generated tag. Leave blank to disable or use vite()->useNonce() in templates.');
+		$f->attr('value', $data['nonce'] ?? '');
+		$wrapper->add($f);
 
-    public function ___getConfig(array $data): array
-    {
-        $data = parent::___getConfig($data);
+		return $wrapper;
+	}
 
-        if (isset($data['integrityToggle']) && $data['integrityToggle'] === 'disabled') {
-            $data['integrity'] = false;
-            unset($data['integrityToggle']);
-        } elseif (isset($data['integrityToggle'])) {
-            if (!isset($data['integrity']) || !is_string($data['integrity']) || trim($data['integrity']) === '') {
-                $data['integrity'] = 'integrity';
-            }
-            unset($data['integrityToggle']);
-        }
+	/**
+	 * Normalize and sanitize saved module configuration data.
+	 *
+	 * @param array<string, mixed> $data
+	 * @return array<string, mixed>
+	 */
+	public function ___getConfig(array $data): array
+	{
+		$data = parent::___getConfig($data);
+		$defaults = $this->getDefaultConfig();
 
-        $defaults = [
-            'rootPath'       => $this->wire('config')->paths->templates,
-            'rootUrl'        => $this->wire('config')->urls->templates,
-            'buildDirectory' => 'build',
-            'manifest'       => 'manifest.json',
-        ];
+		if (array_key_exists('integrityToggle', $data)) {
+			if ($data['integrityToggle'] === 'disabled') {
+				$data['integrity'] = false;
+			} elseif (!isset($data['integrity']) || !is_string($data['integrity']) || trim($data['integrity']) === '') {
+				$data['integrity'] = $defaults['integrity'];
+			}
+			unset($data['integrityToggle']);
+		}
 
-        foreach ($defaults as $key => $default) {
-            if (!isset($data[$key]) || !is_string($data[$key]) || trim($data[$key]) === '') {
-                $data[$key] = $default;
-            } else {
-                $data[$key] = trim($data[$key]);
-            }
-        }
+		$requiredStrings = [
+			'rootPath' => $defaults['rootPath'],
+			'rootUrl' => $defaults['rootUrl'],
+			'buildDirectory' => $defaults['buildDirectory'],
+			'manifest' => $defaults['manifest'],
+		];
 
-        if (isset($data['hotFile'])) {
-            if (!is_string($data['hotFile']) || trim($data['hotFile']) === '') {
-                $data['hotFile'] = null;
-            } else {
-                $data['hotFile'] = trim($data['hotFile']);
-            }
-        }
+		foreach ($requiredStrings as $key => $default) {
+			if (!isset($data[$key]) || !is_string($data[$key]) || trim($data[$key]) === '') {
+				$data[$key] = $default;
+			} else {
+				$data[$key] = trim($data[$key]);
+			}
+		}
 
-        if (isset($data['nonce']) && is_string($data['nonce']) && trim($data['nonce']) === '') {
-            $data['nonce'] = null;
-        }
+		if (array_key_exists('hotFile', $data)) {
+			$data['hotFile'] = is_string($data['hotFile']) && trim($data['hotFile']) !== ''
+				? trim($data['hotFile'])
+				: null;
+		}
 
-        return $data;
-    }
+		if (array_key_exists('nonce', $data)) {
+			$data['nonce'] = is_string($data['nonce']) && trim($data['nonce']) !== ''
+				? trim($data['nonce'])
+				: null;
+		}
+
+		return $data;
+	}
 }

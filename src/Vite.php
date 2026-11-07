@@ -16,939 +16,1025 @@ use function ProcessWire\wire;
  * @package   Totoglu Vite
  * @author    Iskender TOTOGLU <iskender@totoglu.com>
  * @link      https://totoglu.com
- * @copyright Iskender TOTOGLU
+ * @copyright 2026 Iskender TOTOGLU
  * @license   https://opensource.org/licenses/MIT
  */
 class Vite implements Stringable
 {
-    /**
-     * The Vite Module instance.
-     */
-    protected \ProcessWire\Vite $module;
-
-    /**
-     * The Vite instance.
-     */
-    protected static Vite $instance;
-
-    protected string $rootPath;
-
-    protected string $rootUrl;
-
-    /**
-     * The Content Security Policy nonce to apply to all generated tags.
-     */
-    protected ?string $nonce = null;
-
-    /**
-     * The key to check for integrity hashes within the manifest.
-     */
-    protected string|false $integrity = 'integrity';
-
-    /**
-     * The configured entry points.
-     */
-    protected array $entries = [];
-
-    /**
-     * The path to the "hot" file.
-     */
-    protected ?string $hotFile = null;
-
-    /**
-     * The path to the build directory.
-     */
-    protected string $buildDirectory = 'build';
-
-    /**
-     * The name of the manifest file.
-     */
-    protected string $manifest = 'manifest.json';
-
-    /**
-     * The preloaded assets.
-     */
-    protected array $preloadedAssets = [];
-
-    /**
-     * The cached manifest files.
-     */
-    protected static array $manifests = [];
-
-    protected array $scriptTagAttributesResolvers = [];
-    protected array $styleTagAttributesResolvers = [];
-    protected array $preloadTagAttributesResolvers = [];
-
-    /**
-     * Create a new Vite instance.
-     */
-    public function __construct()
-    {
-        $this->module = wire('vite');
-
-        $this->rootPath       = (string) ($this->module->rootPath ?? wire('config')->paths->templates);
-        $this->rootUrl        = (string) ($this->module->rootUrl  ?? wire('config')->urls->templates);
-        $this->buildDirectory = is_string($this->module->buildDirectory) && $this->module->buildDirectory !== ''
-            ? $this->module->buildDirectory
-            : 'build';
-        $this->manifest       = is_string($this->module->manifest) && $this->module->manifest !== ''
-            ? $this->module->manifest
-            : 'manifest.json';
-
-        $this->hotFile = is_string($this->module->hotFile) && $this->module->hotFile !== ''
-            ? $this->module->hotFile
-            : null;
-
-        $this->integrity = ($this->module->integrity === false || is_string($this->module->integrity))
-            ? (is_string($this->module->integrity) && trim($this->module->integrity) === '' ? 'integrity' : $this->module->integrity)
-            : 'integrity';
-
-        $this->nonce = (is_string($this->module->nonce) && $this->module->nonce !== '')
-            ? $this->module->nonce
-            : null;
-
-        $this->applyGlobalSettings();
-
-        $this->scriptTagAttributesResolvers = $this->resolveUserSettings('vite.scriptTagAttributes');
-        $this->styleTagAttributesResolvers = $this->resolveUserSettings('vite.styleTagAttributes');
-        $this->preloadTagAttributesResolvers = $this->resolveUserSettings('vite.preloadTagAttributes');
-    }
-
-    /**
-     * Apply base configuration overrides declared via setting('vite', [...]).
-     * Each option accepts a scalar value or a callable that is evaluated lazily.
-     */
-    protected function applyGlobalSettings(): void
-    {
-        $global = setting('vite');
-
-        if ($global === null) {
-            return;
-        }
-
-        if (is_callable($global)) {
-            $global = $global();
-        }
-
-        if (!is_array($global)) {
-            return;
-        }
-
-        $optionMap = [
-            'rootPath'       => 'rootPath',
-            'rootUrl'        => 'rootUrl',
-            'buildDirectory' => 'buildDirectory',
-            'hotFile'        => 'hotFile',
-            'integrity'      => 'integrity',
-            'manifest'       => 'manifest',
-            'nonce'          => 'nonce',
-        ];
-
-        foreach ($optionMap as $settingKey => $property) {
-            if (!array_key_exists($settingKey, $global)) {
-                continue;
-            }
-
-            $value = $global[$settingKey];
-            if (is_callable($value)) {
-                $value = $value();
-            }
-
-            $this->{$property} = match ($settingKey) {
-                'integrity' => $value === false
-                    ? false
-                    : (is_string($value) && trim($value) !== '' ? $value : $this->{$property}),
-                'nonce'     => $value === null
-                    ? null
-                    : (is_string($value) && trim($value) !== '' ? $value : $this->{$property}),
-                'hotFile'   => is_string($value) && trim($value) !== ''
-                    ? $value
-                    : null,
-                'buildDirectory' => is_string($value) && trim($value) !== ''
-                    ? $value
-                    : $this->{$property},
-                'manifest'  => is_string($value) && trim($value) !== ''
-                    ? $value
-                    : $this->{$property},
-                default     => is_string($value) ? $value : $this->{$property},
-            };
-        }
-    }
-
-    /**
-     * Resolve the global setting into a list of executable closures.
-     */
-    protected function resolveUserSettings(string $name): array
-    {
-        $resolvers = [];
-        $globalSetting = setting($name);
-
-        if ($globalSetting) {
-            if (is_callable($globalSetting)) {
-                $resolvers[] = $globalSetting;
-            } elseif (is_array($globalSetting)) {
-                $staticAttributes = [];
-                foreach ($globalSetting as $key => $value) {
-                    if (is_int($key) && is_callable($value)) {
-                        $resolvers[] = $value;
-                    } elseif (is_string($key)) {
-                        $staticAttributes[$key] = $value;
-                    }
-                }
-
-                if (!empty($staticAttributes)) {
-                    // Always accept the standard resolver arguments to avoid ArgumentCountError.
-                    $resolvers[] = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
-                }
-            }
-        }
-
-        return $resolvers;
-    }
-
-    /**
-     * Generate Vite tags for an entrypoint.
-     *
-     * @param  string|string[]  $entries
-     *
-     * @throws \Exception
-     */
-    public function __invoke(array|string $entries, ?string $buildDirectory = null): string
-    {
-        $entries = (array) $entries;
-        $exists  = [];
-
-        foreach ($entries as $key => $value) {
-            $optional = str_starts_with($value, '@');
-
-            if ($optional) {
-                $value = substr($value, 1);
-                if ($this->exists($value)) {
-                    $entries[$key] = $value;
-                    $exists[]      = $value;
-                } else {
-                    unset($entries[$key]);
-                }
-            }
-        }
-
-        if ($this->isRunningHot()) {
-            array_unshift($entries, '@vite/client');
-
-            return implode('', array_map(
-                fn(string $value) =>
-                $this->makeTag($value, $this->hotAsset($value)),
-                $entries
-            ));
-        }
-
-        $manifest = $this->manifest($buildDirectory ??= $this->buildDirectory);
-
-        $preloads = [];
-        $assets   = [];
-
-        foreach ($entries as $key) {
-            try {
-                $chunk = $this->chunk($manifest, $key);
-            } catch (WireException $e) {
-                if (! in_array($key, $exists)) throw $e;
-            }
-
-            if (! isset($chunk)) {
-                continue;
-            }
-
-            $args = [
-                $key,
-                $this->url($buildDirectory . '/' . $file = $chunk['file']),
-                $chunk,
-                $manifest,
-            ];
-
-            if (! isset($preloads[$file])) {
-                $preloads[$file] = $this->makePreloadTag(...$args);
-            }
-
-            if (! isset($assets[$file])) {
-                $assets[$file] = $this->makeTag(...$args);
-            }
-
-            $this->resolveImports($chunk, $buildDirectory, $manifest, $assets, $preloads);
-
-            $this->resolveCss($chunk, $buildDirectory, $manifest, $assets, $preloads);
-        }
-
-        uksort(
-            $preloads,
-            fn($a, $b) =>
-            $this->isStylePath($b) <=> $this->isStylePath($a)
-        );
-
-        uksort(
-            $assets,
-            fn($a, $b) =>
-            $this->isStylePath($b) <=> $this->isStylePath($a)
-        );
-
-        return implode('', $preloads) . implode('', $assets);
-    }
-
-    /**
-     * Create or return the shared Vite singleton instance.
-     *
-     * Uses Late Static Binding (LSB) so that subclasses of Vite receive their
-     * own independent singleton cache via the static:: property accessor. The
-     * instance() callers (e.g. the vite() global helper) should intentionally
-     * invoke this on the concrete Vite class so LSB resolves correctly.
-     */
-    public static function instance(): static
-    {
-        if (!isset(static::$instance) || !static::$instance instanceof static) {
-            static::$instance = new static();
-        }
-
-        return static::$instance;
-    }
-
-    /**
-     * Returns a copy of the current Vite instance.
-     */
-    public static function copy(): static
-    {
-        return clone static::instance();
-    }
-
-    /**
-     * Get the chunk for the given entry point / asset.
-     *
-     * @throws WireException
-     */
-    protected function chunk(array $manifest, string $file): array
-    {
-        if (! isset($manifest[$file])) {
-            throw new WireException("Unable to locate file in Vite manifest: {$file}");
-        }
-
-        $chunk = $manifest[$file];
-
-        if (! is_array($chunk) || ! isset($chunk['file']) || ! is_string($chunk['file'])) {
-            throw new WireException(sprintf(
-                'Malformed chunk in Vite manifest for entry "%s": missing or invalid "file" key.',
-                $file
-            ));
-        }
-
-        return $chunk;
-    }
-
-    /**
-     * Check if a source file exists.
-     */
-    protected function exists(string $file): bool
-    {
-        $paths = wire('config')->paths;
-
-        $paths = [
-            $paths->root,
-            $paths->templates
-        ];
-
-        foreach ($paths as $path) {
-            if (file_exists($this->path($file, $path))) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Get the the manifest file for the given build directory.
-     *
-     * @throws WireException
-     */
-    protected function manifest(string $buildDirectory): array
-    {
-        $path = $this->manifestPath($buildDirectory);
-
-        if (! isset(static::$manifests[$path])) {
-            if (! is_file($path)) {
-                throw new WireException("Vite manifest not found at: {$path}");
-            }
-
-            $contents = file_get_contents($path);
-            if ($contents === false) {
-                throw new WireException("Vite manifest is not readable at: {$path}");
-            }
-
-            $manifest = json_decode($contents, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new WireException(sprintf(
-                    'Vite manifest at %s contains invalid JSON: %s',
-                    $path,
-                    json_last_error_msg()
-                ));
-            }
-
-            if (! is_array($manifest)) {
-                throw new WireException("Vite manifest at {$path} did not decode to an array.");
-            }
-
-            static::$manifests[$path] = $manifest;
-        }
-
-        return static::$manifests[$path];
-    }
-
-    /**
-     * Get the path to the manifest file for the given build directory.
-     */
-    protected function manifestPath(string $buildDirectory): string
-    {
-        $path = $this->path($buildDirectory . '/' . $this->manifest);
-
-        if (! is_file($path)) {
-            $fallbackPath = $this->path($buildDirectory . '/.vite/' . $this->manifest);
-            if (is_file($fallbackPath)) {
-                return $fallbackPath;
-            }
-        }
-
-        return $path;
-    }
-
-    /**
-     * Make a tag for the given chunk.
-     */
-    protected function makeTag(string $src, string $url, array $chunk = [], array $manifest = []): string
-    {
-        if ($this->isStylePath($url)) {
-            return $this->makeStyleTag(
-                $url,
-                $this->resolveStyleTagAttributes($src, $url, $chunk, $manifest)
-            );
-        }
-
-        return $this->makeScriptTag(
-            $url,
-            $this->resolveScriptTagAttributes($src, $url, $chunk, $manifest)
-        );
-    }
-
-    /**
-     * Generate a script tag with attributes for the given URL.
-     */
-    protected function makeScriptTag(string $url, array $attributes = []): string
-    {
-        $attributes = array_merge([
-            'type'  => 'module',
-            'src'   => $url,
-            'nonce' => $this->nonce(),
-        ], $attributes);
-        return "<script {$this->getAttributes($attributes)}></script>";
-    }
-
-    /**
-     * Generate a link tag with attributes for the given URL.
-     */
-    protected function makeStyleTag(string $url, array $attributes = []): string
-    {
-        $attributes = array_merge([
-            'rel'   => 'stylesheet',
-            'href'  => $url,
-            'nonce' => $this->nonce(),
-        ], $attributes);
-        return "<link {$this->getAttributes($attributes)}>";
-    }
-
-    /**
-     * Make a preload tag for the given chunk.
-     */
-    protected function makePreloadTag(string $src, string $url, array $chunk = [], array $manifest = []): string
-    {
-        $attributes = $this->resolvePreloadTagAttributes($src, $url, $chunk, $manifest);
-
-        return $this->preloadedAssets[$url] ??= "<link {$this->getAttributes($attributes)}>";
-    }
-
-    /**
-     * Resolve the attributes for the chunks generated script tag.
-     */
-    protected function resolveScriptTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
-    {
-        $attributes = $this->integrity !== false
-            ? ['integrity' => $chunk[$this->integrity] ?? false]
-            : [];
-
-        $attributes = array_merge($attributes, $this->attributesResolver('scriptTagAttributes', $src, $url, $chunk, $manifest));
-
-        return $attributes;
-    }
-
-    /**
-     * Resolve the attributes for the chunks generated stylesheet tag.
-     */
-    protected function resolveStyleTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
-    {
-        $attributes = $this->integrity !== false
-            ? ['integrity' => $chunk[$this->integrity] ?? false]
-            : [];
-
-        $attributes = array_merge($attributes, $this->attributesResolver('styleTagAttributes', $src, $url, $chunk, $manifest));
-        return $attributes;
-    }
-
-    /**
-     * Resolve the attributes for the chunks generated preload tag.
-     */
-    protected function resolvePreloadTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
-    {
-        $attributes = $this->isStylePath($url) ? [
-            'rel'         => 'preload',
-            'as'          => 'style',
-            'href'        => $url,
-            'nonce'       => $this->nonce(),
-            'crossorigin' => $this->resolveStyleTagAttributes($src, $url, $chunk, $manifest)['crossorigin'] ?? false,
-        ] : [
-            'rel'         => 'modulepreload',
-            'href'        => $url,
-            'nonce'       => $this->nonce(),
-            'crossorigin' => $this->resolveScriptTagAttributes($src, $url, $chunk, $manifest)['crossorigin'] ?? false,
-        ];
-
-        $attributes = $this->integrity !== false
-            ? array_merge($attributes, ['integrity' => $chunk[$this->integrity] ?? false])
-            : $attributes;
-
-        $attributes = array_merge($attributes, $this->attributesResolver('preloadTagAttributes', $src, $url, $chunk, $manifest));
-
-        return $attributes;
-    }
-
-    protected function attributesResolver(string $name, string $src, string $url, array $chunk = [], array $manifest = []): array
-    {
-        $attributes = [];
-
-        $resolvers = match ($name) {
-            'scriptTagAttributes' => $this->scriptTagAttributesResolvers,
-            'styleTagAttributes' => $this->styleTagAttributesResolvers,
-            'preloadTagAttributes' => $this->preloadTagAttributesResolvers,
-            default => []
-        };
-
-        foreach ($resolvers as $resolver) {
-            // Backwards/defensive: support both "static array" and callable resolvers.
-            if (is_array($resolver)) {
-                $attributes = array_merge($attributes, $resolver);
-                continue;
-            }
-
-            if (! is_callable($resolver)) {
-                continue;
-            }
-
-            $resolved = $resolver($src, $url, $chunk, $manifest);
-            if (is_array($resolved)) {
-                $attributes = array_merge($attributes, $resolved);
-            }
-        }
-
-        return $attributes;
-    }
-
-    /**
-     * Get the preloaded assets.
-     */
-    public function preloadedAssets(): array
-    {
-        return $this->preloadedAssets;
-    }
-
-    /**
-     * Get the URL for an asset.
-     */
-    public function asset(string $asset, ?string $buildDirectory = null): string
-    {
-        $buildDirectory ??= $this->buildDirectory;
-
-        if ($this->isRunningHot()) {
-            return $this->hotAsset($asset);
-        }
-
-        $chunk = $this->chunk($this->manifest($buildDirectory), $asset);
-
-        return $this->url($buildDirectory . '/' . $chunk['file']);
-    }
-
-    /**
-     * Generate React refresh runtime script.
-     */
-    public function reactRefresh(): string
-    {
-        if (! $this->isRunningHot()) {
-            return '';
-        }
-
-        return sprintf(
-            <<<'HTML'
-            <script type="module" %s>
-                import RefreshRuntime from '%s'
-                RefreshRuntime.injectIntoGlobalHook(window)
-                window.$RefreshReg$ = () => {}
-                window.$RefreshSig$ = () => (type) => type
-                window.__vite_plugin_react_preamble_installed__ = true
-            </script>
-            HTML,
-            $this->getAttributes(['nonce' => $this->nonce()]),
-            $this->hotAsset('@react-refresh')
-        );
-    }
-
-    /**
-     * Determine whether the given path is a style file.
-     */
-    public function isStylePath(string $path): bool
-    {
-        return preg_match('/\.(css|less|sass|scss|styl|stylus|pcss|postcss)$/', $path) === 1;
-    }
-
-    /**
-     * Get the Vite "hot" file path.
-     *
-     * Returns an empty string when no hot file path is configured (i.e. HMR
-     * is explicitly disabled by leaving the configuration empty).
-     */
-    public function hotFile(): string
-    {
-        if (! is_string($this->hotFile) || trim($this->hotFile) === '') {
-            return '';
-        }
-
-        return $this->path($this->hotFile);
-    }
-
-    /**
-     * Determine if the HMR server is running.
-     */
-    public function isRunningHot(): bool
-    {
-        $path = $this->hotFile();
-        return $path !== '' && is_file($path);
-    }
-
-    /**
-     * Get the path to a given asset when running in HMR mode.
-     *
-     * @throws WireException
-     */
-    public function hotAsset(string $asset): string
-    {
-        $hotPath = $this->hotFile();
-
-        if (! is_file($hotPath) || ! is_readable($hotPath)) {
-            throw new WireException("Vite hot file is missing or unreadable at: {$hotPath}");
-        }
-
-        $hotUrl = file_get_contents($hotPath);
-        if ($hotUrl === false || $hotUrl === '') {
-            throw new WireException("Vite hot file at {$hotPath} is empty or could not be read.");
-        }
-
-        return rtrim($hotUrl) . '/' . $asset;
-    }
-
-    /**
-     * Get the Content Security Policy nonce applied to all generated tags.
-     */
-    public function nonce(): ?string
-    {
-        return $this->nonce;
-    }
-
-    /**
-     * Resolve related css files.
-     */
-    public function resolveCss(array $chunk, string $buildDirectory, array $manifest, array &$assets, array &$preloads): void
-    {
-        foreach ($chunk['css'] ?? [] as $key) {
-            $chunks = array_filter(
-                $manifest,
-                static fn($value) =>
-                is_array($value) && isset($value['file']) && is_string($value['file']) && $value['file'] === $key
-            );
-
-            if (empty($chunks)) {
-                $chunks[$key] = ['file' => $key];
-            }
-
-            $key   = array_key_first($chunks);
-            $chunk = current($chunks);
-            $file  = $chunk['file'];
-
-            $args = [
-                $key,
-                $this->url($buildDirectory . '/' . $file),
-                $chunk,
-                $manifest,
-            ];
-
-            if (! isset($assets[$file])) {
-                $assets[$file] = $this->makeTag(...$args);
-            }
-
-            if (! isset($preloads[$file])) {
-                $preloads[$file] = $this->makePreloadTag(...$args);
-            }
-        }
-    }
-
-    /**
-     * Resolve related imports.
-     */
-    public function resolveImports(array $chunk, string $buildDirectory, array $manifest, array &$assets, array &$preloads): void
-    {
-        foreach ($chunk['imports'] ?? [] as $key) {
-            $chunk = $this->chunk($manifest, $key);
-            $file  = $chunk['file'];
-
-            if (! isset($preloads[$file])) {
-                $preloads[$file] = $this->makePreloadTag(
-                    $key,
-                    $this->url($buildDirectory . '/' . $file),
-                    $chunk,
-                    $manifest,
-                );
-            }
-
-            $this->resolveCss($chunk, $buildDirectory, $manifest, $assets, $preloads);
-        }
-    }
-
-    /**
-     * Generate or set a Content Security Policy nonce to apply to all generated tags.
-     */
-    public function useNonce(?string $nonce = null): static
-    {
-        $this->nonce = $nonce ?? $this->random(40);
-
-        return $this;
-    }
-
-    /**
-     * Set the filename for the manifest file.
-     */
-    public function useManifest(string $name): static
-    {
-        $this->manifest = $name;
-
-        return $this;
-    }
-
-    /**
-     * Use the given key to detect integrity hashes in the manifest.
-     */
-    public function useIntegrity(string|false $key): static
-    {
-        $this->integrity = $key;
-
-        return $this;
-    }
-
-    /**
-     * Set the Vite "hot" file path.
-     */
-    public function useHotFile(string $path): static
-    {
-        $this->hotFile = $path;
-
-        return $this;
-    }
-
-    /**
-     * Set the Vite build directory.
-     */
-    public function useBuildDirectory(string $path): static
-    {
-        $this->buildDirectory = $path;
-        return $this;
-    }
-
-    /**
-     * Use the given callback to resolve attributes for script tags.
-     */
-    public function useScriptTagAttributes(array|callable $attributes): static
-    {
-        if (! is_callable($attributes)) {
-            $staticAttributes = $attributes;
-            $attributes = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
-        }
-
-        $this->scriptTagAttributesResolvers[] = $attributes;
-
-        return $this;
-    }
-
-    /**
-     * Use the given callback to resolve attributes for style tags.
-     */
-    public function useStyleTagAttributes(array|callable $attributes): static
-    {
-        if (! is_callable($attributes)) {
-            $staticAttributes = $attributes;
-            $attributes = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
-        }
-
-        $this->styleTagAttributesResolvers[] = $attributes;
-
-        return $this;
-    }
-
-    /**
-     * Use the given callback to resolve attributes for preload tags.
-     */
-    public function usePreloadTagAttributes(array|callable $attributes): static
-    {
-        if (! is_callable($attributes)) {
-            $staticAttributes = $attributes;
-            $attributes = fn(string $src, string $url, array $chunk = [], array $manifest = []) => $staticAttributes;
-        }
-
-        $this->preloadTagAttributesResolvers[] = $attributes;
-
-        return $this;
-    }
-
-    /**
-     * Set the Vite entry points.
-     */
-    public function withEntries(array $entries): static
-    {
-        $this->entries = $entries;
-
-        return $this;
-    }
-
-    /**
-     * Gets the HTML attributes.
-     *
-     * @param array $attributes
-     *
-     * @return string
-     */
-    public function getAttributes(array $attributes): string
-    {
-        $attrs = [];
-        foreach ($attributes as $key => $value) {
-            if ($value === null || $value === false) {
-                continue;
-            }
-
-            if ($value === true) {
-                $attrs[] = htmlspecialchars((string) $key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-                continue;
-            }
-
-            if (!is_string($value)) {
-                $value = (string) $value;
-            }
-
-            $attrs[] = sprintf(
-                '%1$s="%2$s"',
-                htmlspecialchars((string) $key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
-                htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            );
-        }
-
-        return implode(' ', $attrs);
-    }
-
-    public function url(?string $path = null): string
-    {
-        return $this->rootUrl . ltrim($path, '/');
-    }
-
-    protected function path(?string $file = null, ?string $path = null): string
-    {
-        $path ??= $this->rootPath;
-        return $path . ltrim($file, '/');
-    }
-
-    /**
-     * Get a character pool with various possible combinations
-     */
-    public function pool(string|array $type, bool $array = true): string|array
-    {
-        if (is_array($type) === true) {
-            $pool = [];
-
-            foreach ($type as $t) {
-                $pool = array_merge($pool, static::pool($t));
-            }
-        } else {
-            $pool = match (strtolower($type)) {
-                'alphalower' => range('a', 'z'),
-                'alphaupper' => range('A', 'Z'),
-                'alpha'      => static::pool(['alphaLower', 'alphaUpper']),
-                'num'        => range(0, 9),
-                'alphanum'   => static::pool(['alpha', 'num']),
-                'base32'     => array_merge(static::pool('alphaUpper'), range(2, 7)),
-                'base32hex'  => array_merge(range(0, 9), range('A', 'V')),
-                default      => []
-            };
-        }
-
-        return $array ? $pool : implode('', $pool);
-    }
-
-    /**
-     * Generates a random string that may be used for cryptographic purposes
-     *
-     * @param int $length The length of the random string
-     * @param string $type Pool type (type of allowed characters)
-     */
-    public function random(int|null $length = null, string $type = 'alphaNum'): string|false
-    {
-        $length ??= random_int(5, 10);
-        $pool     = $this->pool($type, false);
-
-        // catch invalid pools
-        if (!$pool) {
-            return false;
-        }
-
-        if (class_exists(\Random\Randomizer::class)) {
-            return (new \Random\Randomizer())->getBytesFromString((string) $pool, $length);
-        }
-
-        // regex that matches all characters
-        // *not* in the pool of allowed characters
-        $regex = '/[^' . preg_quote((string) $pool, '/') . ']/';
-
-        // collect characters until we have our required length
-        $result = '';
-
-        while (($currentLength = strlen($result)) < $length) {
-            $missing = $length - $currentLength;
-            $bytes   = random_bytes($missing);
-            $allowed = preg_replace($regex, '', base64_encode($bytes));
-            $result .= substr($allowed, 0, $missing);
-        }
-
-        return $result;
-    }
-
-    /**
-     * Get the Vite tag content as a string of HTML.
-     */
-    public function __toString(): string
-    {
-        try {
-            return $this->__invoke($this->entries);
-        } catch (\Throwable $e) {
-            if (class_exists(\ProcessWire\WireException::class)) {
-                \ProcessWire\wire('log')->error('Vite __toString exception: ' . $e->getMessage());
-            }
-            return '';
-        }
-    }
+	/**
+	 * The Vite Module instance.
+	 */
+	protected ?\ProcessWire\Vite $module = null;
+
+	/**
+	 * The shared Vite instance.
+	 */
+	protected static ?Vite $instance = null;
+
+	protected string $rootPath;
+
+	protected string $rootUrl;
+
+	/**
+	 * The Content Security Policy nonce to apply to all generated tags.
+	 */
+	protected ?string $nonce = null;
+
+	/**
+	 * The key to check for integrity hashes within the manifest.
+	 */
+	protected string|false $integrity = 'integrity';
+
+	/**
+	 * The configured entry points.
+	 *
+	 * @var array<int, string>
+	 */
+	protected array $entries = [];
+
+	/**
+	 * Whether to prepend the React Fast Refresh runtime script before entries.
+	 */
+	protected bool $includeReactRefresh = false;
+
+	/**
+	 * The path to the "hot" file.
+	 */
+	protected ?string $hotFile = null;
+
+	/**
+	 * The path to the build directory.
+	 */
+	protected string $buildDirectory = 'build';
+
+	/**
+	 * The name of the manifest file.
+	 */
+	protected string $manifest = 'manifest.json';
+
+	/**
+	 * The preloaded assets registered during the latest render pass.
+	 *
+	 * @var array<string, string>
+	 */
+	protected array $preloadedAssets = [];
+
+	/**
+	 * The cached decoded manifest files keyed by absolute path.
+	 *
+	 * @var array<string, array<string, mixed>>
+	 */
+	protected static array $manifests = [];
+
+	/**
+	 * @var array<int, callable>
+	 */
+	protected array $scriptTagAttributesResolvers = [];
+
+	/**
+	 * @var array<int, callable>
+	 */
+	protected array $styleTagAttributesResolvers = [];
+
+	/**
+	 * @var array<int, callable>
+	 */
+	protected array $preloadTagAttributesResolvers = [];
+
+	/**
+	 * Create a new Vite instance.
+	 */
+	public function __construct(?\ProcessWire\Vite $module = null)
+	{
+		$wiredModule = $module ?? wire('vite');
+		$this->module = $wiredModule instanceof \ProcessWire\Vite ? $wiredModule : null;
+
+		$config = wire('config');
+		$defaultRootPath = is_object($config) && isset($config->paths->templates)
+			? (string) $config->paths->templates
+			: '';
+		$defaultRootUrl = is_object($config) && isset($config->urls->templates)
+			? (string) $config->urls->templates
+			: '/';
+
+		$this->rootPath = is_string($this->module?->rootPath) && trim($this->module->rootPath) !== ''
+			? trim($this->module->rootPath)
+			: $defaultRootPath;
+		$this->rootUrl = is_string($this->module?->rootUrl) && trim($this->module->rootUrl) !== ''
+			? trim($this->module->rootUrl)
+			: $defaultRootUrl;
+		$this->buildDirectory = is_string($this->module?->buildDirectory) && trim($this->module->buildDirectory) !== ''
+			? trim($this->module->buildDirectory)
+			: 'build';
+		$this->manifest = is_string($this->module?->manifest) && trim($this->module->manifest) !== ''
+			? trim($this->module->manifest)
+			: 'manifest.json';
+
+		$this->hotFile = is_string($this->module?->hotFile) && trim($this->module->hotFile) !== ''
+			? trim($this->module->hotFile)
+			: null;
+
+		$moduleIntegrity = $this->module?->integrity;
+		$this->integrity = $moduleIntegrity === false
+			? false
+			: (is_string($moduleIntegrity) && trim($moduleIntegrity) !== '' ? trim($moduleIntegrity) : 'integrity');
+
+		$this->nonce = is_string($this->module?->nonce) && trim($this->module->nonce) !== ''
+			? trim($this->module->nonce)
+			: null;
+
+		$this->applyGlobalSettings();
+
+		$this->scriptTagAttributesResolvers = $this->resolveUserSettings('vite.scriptTagAttributes');
+		$this->styleTagAttributesResolvers = $this->resolveUserSettings('vite.styleTagAttributes');
+		$this->preloadTagAttributesResolvers = $this->resolveUserSettings('vite.preloadTagAttributes');
+	}
+
+	/**
+	 * Apply base configuration overrides declared via setting('vite', [...]).
+	 * Each option accepts a scalar value or a callable that is evaluated lazily.
+	 */
+	protected function applyGlobalSettings(): void
+	{
+		$global = setting('vite');
+
+		if ($global === null) {
+			return;
+		}
+
+		if (is_callable($global)) {
+			$global = $global();
+		}
+
+		if (!is_array($global)) {
+			return;
+		}
+
+		$optionKeys = [
+			'rootPath',
+			'rootUrl',
+			'buildDirectory',
+			'hotFile',
+			'integrity',
+			'manifest',
+			'nonce',
+		];
+
+		foreach ($optionKeys as $settingKey) {
+			if (!array_key_exists($settingKey, $global)) {
+				continue;
+			}
+
+			$value = $global[$settingKey];
+			if (is_callable($value)) {
+				$value = $value();
+			}
+
+			$this->{$settingKey} = match ($settingKey) {
+				'integrity' => $value === false
+					? false
+					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->integrity),
+				'nonce' => $value === null
+					? null
+					: (is_string($value) && trim($value) !== '' ? trim($value) : $this->nonce),
+				'hotFile' => is_string($value) && trim($value) !== ''
+					? trim($value)
+					: null,
+				default => is_string($value) && trim($value) !== ''
+					? trim($value)
+					: $this->{$settingKey},
+			};
+		}
+	}
+
+	/**
+	 * Wrap a static attribute map or callable into a normalized attribute resolver closure.
+	 *
+	 * @param array<string, mixed>|callable $attributes
+	 */
+	protected function normalizeAttributeResolver(array|callable $attributes): callable
+	{
+		if (is_callable($attributes)) {
+			return $attributes;
+		}
+
+		$staticAttributes = $attributes;
+
+		return static fn(string $src, string $url, array $chunk = [], array $manifest = []): array => $staticAttributes;
+	}
+
+	/**
+	 * Resolve a global setting into a list of executable attribute resolver callables.
+	 *
+	 * @return array<int, callable>
+	 */
+	protected function resolveUserSettings(string $name): array
+	{
+		$resolvers = [];
+		$globalSetting = setting($name);
+
+		if ($globalSetting === null || $globalSetting === false || $globalSetting === []) {
+			return $resolvers;
+		}
+
+		if (is_callable($globalSetting)) {
+			$resolvers[] = $globalSetting;
+			return $resolvers;
+		}
+
+		if (is_array($globalSetting)) {
+			$staticAttributes = [];
+			foreach ($globalSetting as $key => $value) {
+				if (is_int($key) && is_callable($value)) {
+					$resolvers[] = $value;
+				} elseif (is_string($key)) {
+					$staticAttributes[$key] = $value;
+				}
+			}
+
+			if ($staticAttributes !== []) {
+				$resolvers[] = $this->normalizeAttributeResolver($staticAttributes);
+			}
+		}
+
+		return $resolvers;
+	}
+
+	/**
+	 * Generate Vite tags for one or more entrypoints.
+	 *
+	 * @param string|array<int, string> $entries
+	 * @throws WireException
+	 */
+	public function __invoke(array|string $entries, ?string $buildDirectory = null): string
+	{
+		$entries = array_values((array) $entries);
+		$exists = [];
+		$prefix = $this->includeReactRefresh ? $this->reactRefresh() : '';
+
+		foreach ($entries as $key => $value) {
+			if (str_starts_with($value, '@')) {
+				$value = substr($value, 1);
+				if ($this->exists($value)) {
+					$entries[$key] = $value;
+					$exists[] = $value;
+				} else {
+					unset($entries[$key]);
+				}
+			}
+		}
+
+		if ($entries === []) {
+			return $prefix;
+		}
+
+		if ($this->isRunningHot()) {
+			array_unshift($entries, '@vite/client');
+
+			return $prefix . implode('', array_map(
+				fn(string $value): string => $this->makeTag($value, $this->hotAsset($value)),
+				$entries
+			));
+		}
+
+		$manifest = $this->manifest($buildDirectory ??= $this->buildDirectory);
+
+		$preloads = [];
+		$assets = [];
+		$visitedImports = [];
+
+		foreach ($entries as $key) {
+			$chunk = null;
+
+			try {
+				$chunk = $this->chunk($manifest, $key);
+			} catch (WireException $e) {
+				if (!in_array($key, $exists, true)) {
+					throw $e;
+				}
+			}
+
+			if ($chunk === null) {
+				continue;
+			}
+
+			$file = $chunk['file'];
+			$url = $this->url($buildDirectory . '/' . $file);
+			$args = [
+				$key,
+				$url,
+				$chunk,
+				$manifest,
+			];
+
+			if (!isset($preloads[$file])) {
+				$preloads[$file] = $this->makePreloadTag(...$args);
+			}
+
+			if (!isset($assets[$file])) {
+				$assets[$file] = $this->makeTag(...$args);
+			}
+
+			$this->resolveImports($chunk, $buildDirectory, $manifest, $assets, $preloads, $visitedImports);
+			$this->resolveCss($chunk, $buildDirectory, $manifest, $assets, $preloads);
+		}
+
+		uksort(
+			$preloads,
+			fn(string $a, string $b): int => $this->isStylePath($b) <=> $this->isStylePath($a)
+		);
+
+		uksort(
+			$assets,
+			fn(string $a, string $b): int => $this->isStylePath($b) <=> $this->isStylePath($a)
+		);
+
+		return $prefix . implode('', $preloads) . implode('', $assets);
+	}
+
+	/**
+	 * Create or return the shared Vite singleton instance.
+	 */
+	public static function instance(): static
+	{
+		if (static::$instance === null || !static::$instance instanceof static) {
+			static::$instance = new static();
+		}
+
+		return static::$instance;
+	}
+
+	/**
+	 * Reset the shared singleton and optionally clear cached manifests.
+	 */
+	public static function flush(bool $clearManifests = false): void
+	{
+		static::$instance = null;
+
+		if ($clearManifests) {
+			static::$manifests = [];
+		}
+	}
+
+	/**
+	 * Return a cloned copy of the current Vite instance.
+	 */
+	public static function copy(): static
+	{
+		return clone static::instance();
+	}
+
+	/**
+	 * Get the chunk for the given entry point / asset.
+	 *
+	 * @param array<string, mixed> $manifest
+	 * @return array<string, mixed>
+	 * @throws WireException
+	 */
+	protected function chunk(array $manifest, string $file): array
+	{
+		if (!isset($manifest[$file])) {
+			throw new WireException("Unable to locate file in Vite manifest: {$file}");
+		}
+
+		$chunk = $manifest[$file];
+
+		if (!is_array($chunk) || !isset($chunk['file']) || !is_string($chunk['file'])) {
+			throw new WireException(sprintf(
+				'Malformed chunk in Vite manifest for entry "%s": missing or invalid "file" key.',
+				$file
+			));
+		}
+
+		return $chunk;
+	}
+
+	/**
+	 * Check if a source file exists under rootPath, ProcessWire root, or templates directory.
+	 */
+	protected function exists(string $file): bool
+	{
+		$config = wire('config');
+		$candidatePaths = [$this->rootPath];
+
+		if (is_object($config) && isset($config->paths)) {
+			$candidatePaths[] = (string) $config->paths->root;
+			$candidatePaths[] = (string) $config->paths->templates;
+		}
+
+		foreach (array_unique(array_filter($candidatePaths)) as $basePath) {
+			if (file_exists($this->path($file, $basePath))) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get the decoded manifest array for the given build directory.
+	 *
+	 * @return array<string, mixed>
+	 * @throws WireException
+	 */
+	protected function manifest(string $buildDirectory): array
+	{
+		$path = $this->manifestPath($buildDirectory);
+
+		if (!isset(static::$manifests[$path])) {
+			if (!is_file($path)) {
+				throw new WireException("Vite manifest not found at: {$path}");
+			}
+
+			$contents = file_get_contents($path);
+			if ($contents === false) {
+				throw new WireException("Vite manifest is not readable at: {$path}");
+			}
+
+			$manifest = json_decode($contents, true);
+			if (json_last_error() !== JSON_ERROR_NONE) {
+				throw new WireException(sprintf(
+					'Vite manifest at %s contains invalid JSON: %s',
+					$path,
+					json_last_error_msg()
+				));
+			}
+
+			if (!is_array($manifest)) {
+				throw new WireException("Vite manifest at {$path} did not decode to an array.");
+			}
+
+			static::$manifests[$path] = $manifest;
+		}
+
+		return static::$manifests[$path];
+	}
+
+	/**
+	 * Get the path to the manifest file for the given build directory.
+	 */
+	protected function manifestPath(string $buildDirectory): string
+	{
+		$path = $this->path($buildDirectory . '/' . $this->manifest);
+
+		if (!is_file($path)) {
+			$fallbackPath = $this->path($buildDirectory . '/.vite/' . $this->manifest);
+			if (is_file($fallbackPath)) {
+				return $fallbackPath;
+			}
+		}
+
+		return $path;
+	}
+
+	/**
+	 * Make a script or stylesheet tag for the given chunk.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 */
+	protected function makeTag(string $src, string $url, array $chunk = [], array $manifest = []): string
+	{
+		if ($this->isStylePath($url)) {
+			return $this->makeStyleTag(
+				$url,
+				$this->resolveStyleTagAttributes($src, $url, $chunk, $manifest)
+			);
+		}
+
+		return $this->makeScriptTag(
+			$url,
+			$this->resolveScriptTagAttributes($src, $url, $chunk, $manifest)
+		);
+	}
+
+	/**
+	 * Generate a script tag with attributes for the given URL.
+	 *
+	 * @param array<string, mixed> $attributes
+	 */
+	protected function makeScriptTag(string $url, array $attributes = []): string
+	{
+		$attributes = array_merge([
+			'type' => 'module',
+			'src' => $url,
+			'nonce' => $this->nonce(),
+		], $attributes);
+
+		return "<script {$this->getAttributes($attributes)}></script>";
+	}
+
+	/**
+	 * Generate a stylesheet link tag with attributes for the given URL.
+	 *
+	 * @param array<string, mixed> $attributes
+	 */
+	protected function makeStyleTag(string $url, array $attributes = []): string
+	{
+		$attributes = array_merge([
+			'rel' => 'stylesheet',
+			'href' => $url,
+			'nonce' => $this->nonce(),
+		], $attributes);
+
+		return "<link {$this->getAttributes($attributes)}>";
+	}
+
+	/**
+	 * Make a preload tag for the given chunk and record it in preloadedAssets.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 */
+	protected function makePreloadTag(string $src, string $url, array $chunk = [], array $manifest = []): string
+	{
+		$attributes = $this->resolvePreloadTagAttributes($src, $url, $chunk, $manifest);
+		$tag = "<link {$this->getAttributes($attributes)}>";
+		$this->preloadedAssets[$url] = $tag;
+
+		return $tag;
+	}
+
+	/**
+	 * Extract the SRI integrity attribute for a manifest chunk when enabled.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @return array<string, string|false>
+	 */
+	protected function resolveIntegrityAttribute(array $chunk): array
+	{
+		if ($this->integrity === false) {
+			return [];
+		}
+
+		$hash = $chunk[$this->integrity] ?? false;
+
+		return ['integrity' => is_string($hash) && $hash !== '' ? $hash : false];
+	}
+
+	/**
+	 * Resolve the attributes for the chunk's generated script tag.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 * @return array<string, mixed>
+	 */
+	protected function resolveScriptTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
+	{
+		return array_merge(
+			$this->resolveIntegrityAttribute($chunk),
+			$this->attributesResolver('scriptTagAttributes', $src, $url, $chunk, $manifest)
+		);
+	}
+
+	/**
+	 * Resolve the attributes for the chunk's generated stylesheet tag.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 * @return array<string, mixed>
+	 */
+	protected function resolveStyleTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
+	{
+		return array_merge(
+			$this->resolveIntegrityAttribute($chunk),
+			$this->attributesResolver('styleTagAttributes', $src, $url, $chunk, $manifest)
+		);
+	}
+
+	/**
+	 * Resolve the attributes for the chunk's generated preload tag.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 * @return array<string, mixed>
+	 */
+	protected function resolvePreloadTagAttributes(string $src, string $url, array $chunk = [], array $manifest = []): array
+	{
+		$attributes = $this->isStylePath($url) ? [
+			'rel' => 'preload',
+			'as' => 'style',
+			'href' => $url,
+			'nonce' => $this->nonce(),
+			'crossorigin' => $this->resolveStyleTagAttributes($src, $url, $chunk, $manifest)['crossorigin'] ?? false,
+		] : [
+			'rel' => 'modulepreload',
+			'href' => $url,
+			'nonce' => $this->nonce(),
+			'crossorigin' => $this->resolveScriptTagAttributes($src, $url, $chunk, $manifest)['crossorigin'] ?? false,
+		];
+
+		return array_merge(
+			$attributes,
+			$this->resolveIntegrityAttribute($chunk),
+			$this->attributesResolver('preloadTagAttributes', $src, $url, $chunk, $manifest)
+		);
+	}
+
+	/**
+	 * Execute registered attribute resolvers for the given tag type.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 * @return array<string, mixed>
+	 */
+	protected function attributesResolver(string $name, string $src, string $url, array $chunk = [], array $manifest = []): array
+	{
+		$attributes = [];
+
+		$resolvers = match ($name) {
+			'scriptTagAttributes' => $this->scriptTagAttributesResolvers,
+			'styleTagAttributes' => $this->styleTagAttributesResolvers,
+			'preloadTagAttributes' => $this->preloadTagAttributesResolvers,
+			default => [],
+		};
+
+		foreach ($resolvers as $resolver) {
+			$resolved = $resolver($src, $url, $chunk, $manifest);
+			if (is_array($resolved)) {
+				$attributes = array_merge($attributes, $resolved);
+			}
+		}
+
+		return $attributes;
+	}
+
+	/**
+	 * Get the preloaded assets map.
+	 *
+	 * @return array<string, string>
+	 */
+	public function preloadedAssets(): array
+	{
+		return $this->preloadedAssets;
+	}
+
+	/**
+	 * Get the URL for a versioned or HMR asset.
+	 */
+	public function asset(string $asset, ?string $buildDirectory = null): string
+	{
+		$buildDirectory ??= $this->buildDirectory;
+
+		if ($this->isRunningHot()) {
+			return $this->hotAsset($asset);
+		}
+
+		$chunk = $this->chunk($this->manifest($buildDirectory), $asset);
+
+		return $this->url($buildDirectory . '/' . $chunk['file']);
+	}
+
+	/**
+	 * Generate React Fast Refresh runtime script when running in HMR mode.
+	 */
+	public function reactRefresh(): string
+	{
+		if (!$this->isRunningHot()) {
+			return '';
+		}
+
+		return sprintf(
+			<<<'HTML'
+			<script type="module" %s>
+				import RefreshRuntime from '%s'
+				RefreshRuntime.injectIntoGlobalHook(window)
+				window.$RefreshReg$ = () => {}
+				window.$RefreshSig$ = () => (type) => type
+				window.__vite_plugin_react_preamble_installed__ = true
+			</script>
+			HTML,
+			$this->getAttributes(['nonce' => $this->nonce()]),
+			$this->hotAsset('@react-refresh')
+		);
+	}
+
+	/**
+	 * Enable or disable prepending the React Fast Refresh runtime script in fluent chains.
+	 */
+	public function withReactRefresh(bool $enabled = true): static
+	{
+		$this->includeReactRefresh = $enabled;
+
+		return $this;
+	}
+
+	/**
+	 * Determine whether the given path is a stylesheet file.
+	 */
+	public function isStylePath(string $path): bool
+	{
+		return preg_match('/\.(css|less|sass|scss|styl|stylus|pcss|postcss)$/', $path) === 1;
+	}
+
+	/**
+	 * Get the resolved Vite "hot" file path.
+	 *
+	 * Returns an empty string when no hot file path is configured. Supports both
+	 * paths relative to rootPath and absolute filesystem paths.
+	 */
+	public function hotFile(): string
+	{
+		if (!is_string($this->hotFile) || trim($this->hotFile) === '') {
+			return '';
+		}
+
+		$hotFile = trim($this->hotFile);
+
+		if (str_starts_with($hotFile, '/') || preg_match('/^[A-Za-z]:[\\\\\/]/', $hotFile) === 1) {
+			return $hotFile;
+		}
+
+		return $this->path($hotFile);
+	}
+
+	/**
+	 * Determine if the HMR dev server is running.
+	 */
+	public function isRunningHot(): bool
+	{
+		$path = $this->hotFile();
+
+		return $path !== '' && is_file($path);
+	}
+
+	/**
+	 * Get the dev-server URL to a given asset when running in HMR mode.
+	 *
+	 * @throws WireException
+	 */
+	public function hotAsset(string $asset): string
+	{
+		$hotPath = $this->hotFile();
+
+		if ($hotPath === '' || !is_file($hotPath) || !is_readable($hotPath)) {
+			throw new WireException("Vite hot file is missing or unreadable at: {$hotPath}");
+		}
+
+		$hotUrl = file_get_contents($hotPath);
+		if ($hotUrl === false || trim($hotUrl) === '') {
+			throw new WireException("Vite hot file at {$hotPath} is empty or could not be read.");
+		}
+
+		return rtrim(trim($hotUrl), '/') . '/' . ltrim($asset, '/');
+	}
+
+	/**
+	 * Get the Content Security Policy nonce applied to all generated tags.
+	 */
+	public function nonce(): ?string
+	{
+		return $this->nonce;
+	}
+
+	/**
+	 * Resolve CSS files associated with a manifest chunk.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 * @param array<string, string> $assets
+	 * @param array<string, string> $preloads
+	 */
+	public function resolveCss(array $chunk, string $buildDirectory, array $manifest, array &$assets, array &$preloads): void
+	{
+		foreach ($chunk['css'] ?? [] as $cssFile) {
+			if (!is_string($cssFile)) {
+				continue;
+			}
+
+			$matchingChunks = array_filter(
+				$manifest,
+				static fn(mixed $value): bool => is_array($value) && isset($value['file']) && is_string($value['file']) && $value['file'] === $cssFile
+			);
+
+			if ($matchingChunks === []) {
+				$matchingChunks[$cssFile] = ['file' => $cssFile];
+			}
+
+			$cssKey = (string) array_key_first($matchingChunks);
+			/** @var array<string, mixed> $cssChunk */
+			$cssChunk = current($matchingChunks);
+			$file = (string) $cssChunk['file'];
+
+			$args = [
+				$cssKey,
+				$this->url($buildDirectory . '/' . $file),
+				$cssChunk,
+				$manifest,
+			];
+
+			if (!isset($assets[$file])) {
+				$assets[$file] = $this->makeTag(...$args);
+			}
+
+			if (!isset($preloads[$file])) {
+				$preloads[$file] = $this->makePreloadTag(...$args);
+			}
+		}
+	}
+
+	/**
+	 * Recursively resolve imported chunks and their CSS files.
+	 *
+	 * @param array<string, mixed> $chunk
+	 * @param array<string, mixed> $manifest
+	 * @param array<string, string> $assets
+	 * @param array<string, string> $preloads
+	 * @param array<string, bool> $visited
+	 */
+	public function resolveImports(
+		array $chunk,
+		string $buildDirectory,
+		array $manifest,
+		array &$assets,
+		array &$preloads,
+		array &$visited = []
+	): void {
+		foreach ($chunk['imports'] ?? [] as $importKey) {
+			if (!is_string($importKey) || isset($visited[$importKey])) {
+				continue;
+			}
+
+			$visited[$importKey] = true;
+			$importedChunk = $this->chunk($manifest, $importKey);
+			$file = (string) $importedChunk['file'];
+
+			if (!isset($preloads[$file])) {
+				$preloads[$file] = $this->makePreloadTag(
+					$importKey,
+					$this->url($buildDirectory . '/' . $file),
+					$importedChunk,
+					$manifest
+				);
+			}
+
+			$this->resolveImports($importedChunk, $buildDirectory, $manifest, $assets, $preloads, $visited);
+			$this->resolveCss($importedChunk, $buildDirectory, $manifest, $assets, $preloads);
+		}
+	}
+
+	/**
+	 * Generate or set a Content Security Policy nonce to apply to all generated tags.
+	 */
+	public function useNonce(?string $nonce = null): static
+	{
+		$this->nonce = $nonce ?? bin2hex(random_bytes(20));
+
+		return $this;
+	}
+
+	/**
+	 * Set the filename for the manifest file.
+	 */
+	public function useManifest(string $name): static
+	{
+		$this->manifest = $name;
+
+		return $this;
+	}
+
+	/**
+	 * Use the given key to detect integrity hashes in the manifest, or false to disable.
+	 */
+	public function useIntegrity(string|false $key): static
+	{
+		$this->integrity = $key;
+
+		return $this;
+	}
+
+	/**
+	 * Set the Vite "hot" file path.
+	 */
+	public function useHotFile(string $path): static
+	{
+		$this->hotFile = $path;
+
+		return $this;
+	}
+
+	/**
+	 * Set the Vite build directory.
+	 */
+	public function useBuildDirectory(string $path): static
+	{
+		$this->buildDirectory = $path;
+
+		return $this;
+	}
+
+	/**
+	 * Use the given array or callback to resolve attributes for script tags.
+	 *
+	 * @param array<string, mixed>|callable $attributes
+	 */
+	public function useScriptTagAttributes(array|callable $attributes): static
+	{
+		$this->scriptTagAttributesResolvers[] = $this->normalizeAttributeResolver($attributes);
+
+		return $this;
+	}
+
+	/**
+	 * Use the given array or callback to resolve attributes for style tags.
+	 *
+	 * @param array<string, mixed>|callable $attributes
+	 */
+	public function useStyleTagAttributes(array|callable $attributes): static
+	{
+		$this->styleTagAttributesResolvers[] = $this->normalizeAttributeResolver($attributes);
+
+		return $this;
+	}
+
+	/**
+	 * Use the given array or callback to resolve attributes for preload tags.
+	 *
+	 * @param array<string, mixed>|callable $attributes
+	 */
+	public function usePreloadTagAttributes(array|callable $attributes): static
+	{
+		$this->preloadTagAttributesResolvers[] = $this->normalizeAttributeResolver($attributes);
+
+		return $this;
+	}
+
+	/**
+	 * Set the Vite entry points.
+	 *
+	 * @param array<int, string> $entries
+	 */
+	public function withEntries(array $entries): static
+	{
+		$this->entries = $entries;
+
+		return $this;
+	}
+
+	/**
+	 * Format an associative array of HTML attributes into an escaped attribute string.
+	 *
+	 * @param array<string, mixed> $attributes
+	 */
+	public function getAttributes(array $attributes): string
+	{
+		$attrs = [];
+		foreach ($attributes as $key => $value) {
+			if ($value === null || $value === false) {
+				continue;
+			}
+
+			if ($value === true) {
+				$attrs[] = htmlspecialchars((string) $key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+				continue;
+			}
+
+			if (!is_string($value)) {
+				$value = (string) $value;
+			}
+
+			$attrs[] = sprintf(
+				'%1$s="%2$s"',
+				htmlspecialchars((string) $key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+				htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+			);
+		}
+
+		return implode(' ', $attrs);
+	}
+
+	/**
+	 * Build a public URL relative to rootUrl.
+	 */
+	public function url(?string $path = null): string
+	{
+		$baseUrl = rtrim($this->rootUrl, '/') . '/';
+
+		return $baseUrl . ltrim((string) $path, '/');
+	}
+
+	/**
+	 * Build a filesystem path relative to rootPath (or a provided base path).
+	 */
+	protected function path(?string $file = null, ?string $path = null): string
+	{
+		$basePath = rtrim($path ?? $this->rootPath, '/\\') . '/';
+
+		return $basePath . ltrim((string) $file, '/\\');
+	}
+
+	/**
+	 * Render the configured Vite entry points as HTML tags.
+	 */
+	public function __toString(): string
+	{
+		try {
+			return $this->__invoke($this->entries);
+		} catch (\Throwable $e) {
+			if (class_exists(WireException::class)) {
+				wire('log')?->error('Vite __toString exception: ' . $e->getMessage());
+			}
+			return '';
+		}
+	}
 }
