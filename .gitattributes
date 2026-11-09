@@ -1,0 +1,7 @@
+/.github export-ignore
+/docs export-ignore
+/tests export-ignore
+/GLOSSARY.md export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore
+.DS_Store export-ignore
