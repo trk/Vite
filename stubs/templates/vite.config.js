@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import laravel from "laravel-vite-plugin";
 import path from "path";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
 	const env = loadEnv(mode, import.meta.dirname, "");
 	const appUrl =
 		env.APP_URL && /^https?:\/\//i.test(env.APP_URL) && URL.canParse(env.APP_URL)
@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
 
 	return {
 		root: import.meta.dirname,
+		base: command === "build" ? "/site/templates/build/" : "/",
 		...(host && !isHttps
 			? {
 					server: {
