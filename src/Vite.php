@@ -1021,7 +1021,7 @@ class Vite extends Wire implements Stringable
 		try {
 			return $this->__invoke($entries);
 		} catch (\Throwable $e) {
-			$this->wire()->log?->error('Vite __toString exception: ' . $e->getMessage());
+			$this->wire()->log->error('Vite __toString exception: ' . $e->getMessage());
 			return '';
 		}
 	}
