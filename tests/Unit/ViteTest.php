@@ -1,4 +1,4 @@
-<?php
+<?php // __(file-not-translatable)
 
 declare(strict_types=1);
 
